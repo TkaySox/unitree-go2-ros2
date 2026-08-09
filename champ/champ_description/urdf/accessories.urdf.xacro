@@ -36,25 +36,15 @@
             <child link="imu_link" />
         </joint>
         
+        <!-- Gazebo Harmonic's IMU sensor publishes natively over gz
+             transport; no plugin needed. Bridged to sensor_msgs/Imu on
+             "imu/data" by champ_gazebo/config/gz_bridge.yaml. -->
         <gazebo reference="imu_link">
                 <sensor name="imu_controller" type="imu">
                     <always_on>true</always_on>
                     <update_rate>50</update_rate>
-                    <plugin name="gazebo_ros_imu_sensor" filename="libgazebo_ros_imu_sensor.so">
-                        <ros>
-                            <namespace>/imu</namespace>
-                            <argument>~/out:=data</argument>
-                        </ros>
-                        <!-- <updateRate>50.0</updateRate>
-                        <bodyName>imu_link</bodyName>
-                        <topicName>imu/data</topicName>
-                        <accelDrift>0.005 0.005 0.005</accelDrift>
-                        <accelGaussianNoise>0.005 0.005 0.005</accelGaussianNoise>
-                        <rateDrift>0.005 0.005 0.005 </rateDrift>
-                        <rateGaussianNoise>0.005 0.005 0.005 </rateGaussianNoise>
-                        <headingDrift>0.005</headingDrift>
-                        <headingGaussianNoise>0.005</headingGaussianNoise> -->
-                    </plugin>
+                    <topic>imu</topic>
+                    <gz_frame_id>imu_link</gz_frame_id>
                 </sensor>
             </gazebo>
         <!-- <xacro:include filename="$(find velodyne_description)/urdf/VLP-16.urdf.xacro"/>

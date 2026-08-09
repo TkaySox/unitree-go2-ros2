@@ -60,23 +60,22 @@
     <xacro:champ_leg leg="rf"/>
     <xacro:champ_leg leg="rh"/>
     
+    <!-- Ground truth odometry via gz-sim's OdometryPublisher system, bridged
+         to ROS as nav_msgs/Odometry on "odom/ground_truth" by
+         champ_gazebo/config/gz_bridge.yaml (see go2_description/xacro/gazebo.xacro
+         for the equivalent go2 setup and rationale). -->
     <gazebo>
-      <plugin name="p3d_base_controller" filename="libgazebo_ros_p3d.so">
-        <ros>
-            <argument>odom:=odom/ground_truth</argument>
-        </ros>
-
-        <body_name>base_link</body_name>
-        <frame_name>world</frame_name>
-        <update_rate>10.0</update_rate>
-        <xyz_offset>0 0 0</xyz_offset>
-        <rpy_offset>0 0 0</rpy_offset>
-        <gaussian_noise>0.01</gaussian_noise>
-    </plugin>
+        <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+            <odom_frame>world</odom_frame>
+            <robot_base_frame>base_link</robot_base_frame>
+            <odom_topic>odom/ground_truth</odom_topic>
+            <odom_publish_frequency>10</odom_publish_frequency>
+            <dimensions>3</dimensions>
+        </plugin>
     </gazebo>
 
     <gazebo>
-        <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+        <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
         <parameters>$(find champ_gazebo)/config/ros_control.yaml</parameters>
       </plugin>
     </gazebo>
