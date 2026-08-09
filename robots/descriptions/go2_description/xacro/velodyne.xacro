@@ -47,13 +47,19 @@
         </geometry>
         </visual>
     </link>
-    <!-- Gazebo requires the velodyne_gazebo_plugins package -->
+    <!-- Gazebo Harmonic has no velodyne_gazebo_plugins / libgazebo_ros_velodyne_laser.so.
+         The gpu_lidar sensor type produces the point cloud natively over gz
+         transport; champ_gazebo's ros_gz_bridge config
+         (config/velodyne_bridge.yaml) republishes it as a ROS 2
+         sensor_msgs/PointCloud2 on "velodyne_points". -->
     <gazebo reference="velodyne">
-        <sensor name="velodyne-VLP16" type="ray">
+        <sensor name="velodyne-VLP16" type="gpu_lidar">
         <pose>0 0 0 0 0 0</pose>
         <visualize>false</visualize>
         <update_rate>10</update_rate>
-        <ray>
+        <topic>velodyne_points</topic>
+        <gz_frame_id>velodyne</gz_frame_id>
+        <lidar>
             <scan>
             <horizontal>
                 <samples>440</samples>
@@ -69,28 +75,16 @@
             </vertical>
             </scan>
             <range>
-            <min>0.3</min>
-            <max>131.0</max>
+            <min>0.9</min>
+            <max>130.0</max>
             <resolution>0.001</resolution>
             </range>
             <noise>
             <type>gaussian</type>
             <mean>0.0</mean>
-            <stddev>0.0</stddev>
+            <stddev>0.008</stddev>
             </noise>
-        </ray>
-        <plugin filename="libgazebo_ros_velodyne_laser.so" name="gazebo_ros_laser_controller">
-            <ros>
-              <namespace>/</namespace>
-              <remapping>~/out:=velodyne_points</remapping>
-            </ros>
-            <frame_name>velodyne</frame_name>
-            <organize_cloud>false</organize_cloud>
-            <min_range>0.9</min_range>
-            <max_range>130.0</max_range>
-            <gaussian_noise>0.008</gaussian_noise>
-
-        </plugin>
+        </lidar>
         </sensor>
     </gazebo>
 </robot>

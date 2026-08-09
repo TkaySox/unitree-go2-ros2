@@ -1,31 +1,37 @@
 <?xml version="1.0"?>
 <robot>
 
+    <!-- Ground truth odometry. Gazebo Classic's libgazebo_ros_p3d.so has no
+         Harmonic equivalent; gz-sim publishes ground-truth pose via its own
+         OdometryPublisher system on a gz transport topic, which is bridged
+         to ROS as nav_msgs/Odometry on "odom/ground_truth" by
+         champ_gazebo/config/*_bridge.yaml. -->
     <gazebo>
-      <plugin name="p3d_base_controller" filename="libgazebo_ros_p3d.so">
-        <ros>
-            <remapping>odom:=odom/ground_truth</remapping>
-        </ros>
-
-        <body_name>base_link</body_name>
-        <frame_name>world</frame_name>
-        <update_rate>10.0</update_rate>
-        <xyz_offset>0 0 0</xyz_offset>
-        <rpy_offset>0 0 0</rpy_offset>
-        <gaussian_noise>0.01</gaussian_noise>
-    </plugin>
+        <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+            <odom_frame>world</odom_frame>
+            <robot_base_frame>base_link</robot_base_frame>
+            <odom_topic>odom/ground_truth</odom_topic>
+            <odom_publish_frequency>10</odom_publish_frequency>
+            <dimensions>3</dimensions>
+        </plugin>
     </gazebo>
 
     <gazebo>
-        <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+        <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
         <parameters>$(find go2_description)/config/ros_control/ros_control.yaml</parameters>
       </plugin>
     </gazebo>
 
     <gazebo reference="imu_link">
         <sensor name="imu_sensor" type="imu">
+            <!-- Gazebo Harmonic's IMU sensor publishes natively on a gz
+                 transport topic; no plugin is required (unlike Gazebo
+                 Classic's libgazebo_ros_imu_sensor.so). champ_gazebo bridges
+                 this topic to sensor_msgs/Imu on "imu/data". -->
             <always_on>true</always_on>
             <update_rate>100</update_rate>
+            <topic>imu</topic>
+            <gz_frame_id>imu_link</gz_frame_id>
             <imu>
             <angular_velocity>
                 <x>
@@ -68,13 +74,47 @@
                 </z>
             </linear_acceleration>
             </imu>
-            <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
-                <ros>
-                    <namespace>imu</namespace>
-                    <remapping>~/out:=data</remapping>
-                </ros>
-                <initial_orientation_as_reference>false</initial_orientation_as_reference>
-            </plugin>
+        </sensor>
+    </gazebo>
+
+    <!-- Foot contact sensors, read by champ_gazebo's contact_sensor node via
+         ros_gz_bridge (see champ_gazebo/config/contact_bridge.yaml). Gazebo
+         Classic's contact state was read out-of-band via gazebo::transport;
+         Harmonic exposes it as a first-class <sensor type="contact">. -->
+    <gazebo reference="lf_foot_link">
+        <sensor name="lf_foot_contact" type="contact">
+            <always_on>true</always_on>
+            <update_rate>50</update_rate>
+            <contact>
+                <collision>lf_foot_link_collision</collision>
+            </contact>
+        </sensor>
+    </gazebo>
+    <gazebo reference="rf_foot_link">
+        <sensor name="rf_foot_contact" type="contact">
+            <always_on>true</always_on>
+            <update_rate>50</update_rate>
+            <contact>
+                <collision>rf_foot_link_collision</collision>
+            </contact>
+        </sensor>
+    </gazebo>
+    <gazebo reference="lh_foot_link">
+        <sensor name="lh_foot_contact" type="contact">
+            <always_on>true</always_on>
+            <update_rate>50</update_rate>
+            <contact>
+                <collision>lh_foot_link_collision</collision>
+            </contact>
+        </sensor>
+    </gazebo>
+    <gazebo reference="rh_foot_link">
+        <sensor name="rh_foot_contact" type="contact">
+            <always_on>true</always_on>
+            <update_rate>50</update_rate>
+            <contact>
+                <collision>rh_foot_link_collision</collision>
+            </contact>
         </sensor>
     </gazebo>
 
