@@ -13,107 +13,100 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ * Ported from the Gazebo Classic transport API to Gazebo Harmonic (gz-sim).
+ * Gazebo Harmonic has no gazebo::transport C++ client library, so instead of
+ * subscribing directly to the simulator, this node subscribes to a ROS topic
+ * that ros_gz_bridge has already translated from gz.msgs.Contacts into
+ * ros_gz_interfaces/msg/Contacts. See champ_gazebo/config/contact_bridge.yaml
+ * for the bridge configuration that feeds this node.
+ */
 #include <rclcpp/rclcpp.hpp>
-#include <iostream>
 #include <champ/utils/urdf_loader.h>
-#include <gazebo/transport/transport.hh>
-#include <gazebo/msgs/msgs.hh>
-#include <gazebo/gazebo_client.hh>
-#include "gazebo/physics/World.hh"
-#include "gazebo/physics/ContactManager.hh"
-#include <boost/algorithm/string.hpp>
 #include <champ_msgs/msg/contacts_stamped.hpp>
+#include <ros_gz_interfaces/msg/contacts.hpp>
+#include <boost/algorithm/string.hpp>
 
-class ContactSensor: public rclcpp::Node
+class ContactSensor : public rclcpp::Node
 {
-	bool foot_contacts_[4];
-	std::vector<std::string> foot_links_;
-	rclcpp::Publisher<champ_msgs::msg::ContactsStamped>::SharedPtr contacts_publisher_;
-	gazebo::transport::SubscriberPtr gazebo_sub;
-    
-	public:
-		ContactSensor():
-			foot_contacts_ {false,false,false,false},
-			Node("contacts_sensor",rclcpp::NodeOptions()
-                        .allow_undeclared_parameters(true)
-                        .automatically_declare_parameters_from_overrides(true))
-		{
-			std::vector<std::string> joint_names;
+  bool foot_contacts_[4];
+  std::vector<std::string> foot_links_;
+  rclcpp::Publisher<champ_msgs::msg::ContactsStamped>::SharedPtr contacts_publisher_;
+  rclcpp::Subscription<ros_gz_interfaces::msg::Contacts>::SharedPtr contacts_subscriber_;
 
-			joint_names = champ::URDF::getLinkNames(this->get_node_parameters_interface());
-			foot_links_.push_back(joint_names[2]);
-			foot_links_.push_back(joint_names[6]);
-			foot_links_.push_back(joint_names[10]);
-			foot_links_.push_back(joint_names[14]);
+public:
+  ContactSensor()
+  : Node(
+      "contacts_sensor", rclcpp::NodeOptions()
+        .allow_undeclared_parameters(true)
+        .automatically_declare_parameters_from_overrides(true)),
+    foot_contacts_ {false, false, false, false}
+  {
+    std::vector<std::string> joint_names;
 
-			contacts_publisher_   = this->create_publisher<champ_msgs::msg::ContactsStamped>("foot_contacts", 10);
-			
-			gazebo::client::setup();
-			gazebo::transport::NodePtr node(new gazebo::transport::Node());
-			node->Init();
+    joint_names = champ::URDF::getLinkNames(this->get_node_parameters_interface());
+    foot_links_.push_back(joint_names[2]);
+    foot_links_.push_back(joint_names[6]);
+    foot_links_.push_back(joint_names[10]);
+    foot_links_.push_back(joint_names[14]);
 
-			gazebo_sub = node->Subscribe("~/physics/contacts", &ContactSensor::gazeboCallback_, this);
-		}
+    contacts_publisher_ = this->create_publisher<champ_msgs::msg::ContactsStamped>(
+      "foot_contacts", 10);
 
-		void gazeboCallback_(ConstContactsPtr &_msg)
-		{
-			for(size_t i = 0; i < 4; i++)
-			{
-				foot_contacts_[i] = false;
-			}
+    // Populated by ros_gz_bridge from the gz-sim "contact" sensor plugin,
+    // see champ_gazebo/config/contact_bridge.yaml.
+    contacts_subscriber_ = this->create_subscription<ros_gz_interfaces::msg::Contacts>(
+      "gz/contacts", rclcpp::SensorDataQoS(),
+      std::bind(&ContactSensor::gzContactsCallback_, this, std::placeholders::_1));
+  }
 
-			for (int i = 0; i < _msg->contact_size(); ++i) 
-			{
-				std::vector<std::string> results;
-				std::string collision = _msg->contact(i).collision1();
-				boost::split(results, collision, [](char c){return c == ':';});
+  void gzContactsCallback_(const ros_gz_interfaces::msg::Contacts::SharedPtr msg)
+  {
+    for (size_t i = 0; i < 4; i++) {
+      foot_contacts_[i] = false;
+    }
 
-				for(size_t j = 0; j < 4; j++)
-				{
-					if(foot_links_[j] == results[2])
-					{
-						foot_contacts_[j] = true;
-						break;
-					}
-				}
-			}
+    for (const auto & contact : msg->contacts) {
+      std::vector<std::string> results;
+      boost::split(results, contact.collision1.name, [](char c) {return c == ':';});
 
-		}
+      if (results.empty()) {
+        continue;
+      }
 
-		void publishContacts()	
-		{
-			champ_msgs::msg::ContactsStamped contacts_msg;
-			contacts_msg.header.stamp = this->get_clock()->now();
-			contacts_msg.contacts.resize(4);
+      for (size_t j = 0; j < 4; j++) {
+        if (foot_links_[j] == results.back()) {
+          foot_contacts_[j] = true;
+          break;
+        }
+      }
+    }
+  }
 
-			for(size_t i = 0; i < 4; i++)
-			{
-				contacts_msg.contacts[i] = foot_contacts_[i];
-			}
-			
-			contacts_publisher_->publish(contacts_msg);
-		}
+  void publishContacts()
+  {
+    champ_msgs::msg::ContactsStamped contacts_msg;
+    contacts_msg.header.stamp = this->get_clock()->now();
+    contacts_msg.contacts.resize(4);
+
+    for (size_t i = 0; i < 4; i++) {
+      contacts_msg.contacts[i] = foot_contacts_[i];
+    }
+
+    contacts_publisher_->publish(contacts_msg);
+  }
 };
 
-void exitHandler(int sig)
+int main(int argc, char ** argv)
 {
-	gazebo::client::shutdown();
-	rclcpp::shutdown();
-}
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<ContactSensor>();
+  rclcpp::Rate loop_rate(50);
 
-int main(int argc, char **argv)
-{
-	rclcpp::init(argc, argv);
-	auto node = std::make_shared<ContactSensor>();
-	rclcpp::Rate loop_rate(50);
-
-	while (rclcpp::ok())
-	{
-		node->publishContacts();
-		rclcpp::spin_some(node);
-		loop_rate.sleep();
-	}
-	rclcpp::shutdown();
-	return 0;
+  while (rclcpp::ok()) {
+    node->publishContacts();
+    rclcpp::spin_some(node);
+    loop_rate.sleep();
+  }
+  rclcpp::shutdown();
+  return 0;
 }
