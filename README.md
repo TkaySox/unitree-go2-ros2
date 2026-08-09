@@ -1,6 +1,6 @@
 # unitree go2 ros2 - champ config
 
-> This package contains the configuration files for the Unitree Go2 robot configured with the CHAMP controller in ROS 2 (humble). It includes development of config package along with upgrade in robot description model for ROS 2 Humble distribution.
+> This package contains the configuration files for the Unitree Go2 robot configured with the CHAMP controller in ROS 2. The `humble` branch targets ROS 2 Humble + Gazebo Classic. The `jazzy` branch targets **ROS 2 Jazzy on Ubuntu 24.04 (Noble) + Gazebo Harmonic** — Gazebo Classic is end-of-life and was never released for Noble, so simulation was ported from `gazebo_ros`/`gazebo_ros2_control` to `ros_gz`/`gz_ros2_control`. See [MIGRATION.md](MIGRATION.md) for what changed and why.
 
 ## Unitree Go2:
 <div style="display: flex; gap: 50px;">
@@ -21,9 +21,10 @@
 - [champ controller](https://github.com/chvmp/champ)
 
 ## Tested on:
-- Ubuntu 22.04 (ROS2 Humble)
+- `humble` branch: Ubuntu 22.04 (ROS 2 Humble) + Gazebo Classic 11
+- `jazzy` branch: Ubuntu 24.04 (ROS 2 Jazzy) + Gazebo Harmonic — **build/runtime not yet verified on real hardware, see [MIGRATION.md](MIGRATION.md)**
 
-## Current state of package:
+## Current state of package (jazzy branch):
 
 - &check; Configure go2 robot with champ config
 - &check; Robots Configurations.
@@ -37,6 +38,7 @@
 - &check; Working Gazebo with teleoperated robot.
 - &check; Adding IMU and 2D LiDAR.
 - &check; Adding 3D LiDAR (Velodyne).
+- &check; Ported Gazebo Classic (`gazebo_ros`) simulation to Gazebo Harmonic (`ros_gz` / `gz_ros2_control`) for Jazzy/Noble.
 - &cross; Working Gazebo demo with SLAM.
 - &cross; Working Gazebo demo with nav2 integration.
 
@@ -44,15 +46,15 @@
 
 ### 1.0 Install ROS-based dependencies:
 ```bash
-sudo apt install ros-humble-gazebo-ros2-control
-sudo apt install ros-humble-xacro
-sudo apt install ros-humble-robot-localization
-sudo apt install ros-humble-ros2-controllers
-sudo apt install ros-humble-ros2-control
-sudo apt install ros-humble-velodyne
-sudo apt install ros-humble-velodyne-gazebo-plugins
-sudo apt-get install ros-humble-velodyne-description
+sudo apt install ros-jazzy-gz-ros2-control
+sudo apt install ros-jazzy-ros-gz
+sudo apt install ros-jazzy-xacro
+sudo apt install ros-jazzy-robot-localization
+sudo apt install ros-jazzy-ros2-controllers
+sudo apt install ros-jazzy-ros2-control
 ```
+
+> The `jazzy` branch uses Gazebo Harmonic (bundled with `ros-jazzy-ros-gz`) instead of Gazebo Classic, so there is no `ros-jazzy-gazebo-*` equivalent to install — `gazebo_ros2_control`, `gazebo_plugins`, and the Velodyne Gazebo plugins are all replaced by `ros_gz_sim` / `ros_gz_bridge` / `gz_ros2_control`, which come from `ros-jazzy-ros-gz` and `ros-jazzy-gz-ros2-control`. See [MIGRATION.md](MIGRATION.md).
 
 ### 1.1 Clone and install all dependencies:
     
@@ -61,7 +63,7 @@ sudo apt install -y python3-rosdep
 rosdep update
 
 cd <your_ws>/src
-git clone https://github.com/anujjain-dev/unitree-go2-ros2.git
+git clone -b jazzy https://github.com/TkaySox/unitree-go2-ros2.git
 cd <your_ws>
 rosdep install --from-paths src --ignore-src -r -y
 ```
