@@ -117,6 +117,24 @@ def generate_launch_description():
         }.items(),
     )
 
+    # robot_VLP.xacro swaps the 2D laser for a Velodyne VLP-16, so bridge its
+    # gz "velodyne_points" topic to ROS instead of the 2D laser bridge.
+    velodyne_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="go2_velodyne_bridge",
+        output="screen",
+        arguments=[
+            "--ros-args",
+            "-p",
+            "config_file:="
+            + os.path.join(
+                get_package_share_directory("champ_gazebo"), "config", "velodyne_bridge.yaml"
+            ),
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
     return LaunchDescription(
         [
             declare_use_sim_time,
@@ -131,7 +149,8 @@ def generate_launch_description():
             declare_world_init_z,
             declare_world_init_heading,
             bringup_ld,
-            gazebo_ld
+            gazebo_ld,
+            velodyne_bridge,
 
         ]
     )

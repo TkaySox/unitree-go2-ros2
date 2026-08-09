@@ -5,8 +5,9 @@ from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
 
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
-                            IncludeLaunchDescription)
+from launch.actions import (DeclareLaunchArgument,
+                            IncludeLaunchDescription,
+                            SetEnvironmentVariable)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
@@ -18,7 +19,6 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
     gui = LaunchConfiguration("gui")
     headless = LaunchConfiguration("headless")
-    paused = LaunchConfiguration("paused")
     lite = LaunchConfiguration("lite")
     ros_control_file = LaunchConfiguration("ros_control_file")
     world_init_x = LaunchConfiguration("world_init_x")
@@ -34,7 +34,6 @@ def generate_launch_description():
     declare_use_sim_time = DeclareLaunchArgument("use_sim_time", default_value="True")
     declare_gui = DeclareLaunchArgument("gui", default_value="True")
     declare_headless = DeclareLaunchArgument("headless", default_value="False")
-    declare_paused = DeclareLaunchArgument("paused", default_value="False")
     declare_lite = DeclareLaunchArgument("lite", default_value="False")
     declare_ros_control_file = DeclareLaunchArgument(
         "ros_control_file",
@@ -58,47 +57,60 @@ def generate_launch_description():
     config_pkg_share = launch_ros.substitutions.FindPackageShare(
         package="champ_config"
     ).find("champ_config")
-    
+
     links_config = os.path.join(config_pkg_share, "config/links/links.yaml")
-    gazebo_config = os.path.join(launch_ros.substitutions.FindPackageShare(
-        package="champ_gazebo"
-    ).find("champ_gazebo"), "config/gazebo.yaml")
     launch_dir = os.path.join(pkg_share, "launch")
-    # Specify the actions
-    start_gazebo_server_cmd = ExecuteProcess(
-        cmd=[
-            "gzserver",
-            "-s",
-            "libgazebo_ros_init.so",
-            "-s",
-            "libgazebo_ros_factory.so",
+
+    # Make sure gz-sim can find the meshes referenced by go2_description /
+    # champ_description / velodyne_description when they are loaded as an
+    # SDF model (xacro -> URDF -> SDF happens implicitly when the robot is
+    # spawned from the /robot_description topic).
+    set_gz_resource_path = SetEnvironmentVariable(
+        name="GZ_SIM_RESOURCE_PATH",
+        value=os.pathsep.join(
+            [
+                os.environ.get("GZ_SIM_RESOURCE_PATH", ""),
+                os.path.dirname(pkg_share),
+                gz_pkg_share,
+            ]
+        ),
+    )
+
+    # Gazebo Harmonic replaces gzserver/gzclient with a single gz sim
+    # process. "-r" runs the world unpaused; drop it if "paused" behavior is
+    # needed. Headless mode maps to gz sim's "-s" (server only) flag.
+    gz_args = PythonExpression(
+        [
+            "'-r ' + '",
             gazebo_world,
-            '--ros-args',
-            '--params-file',
-            gazebo_config
-        ],
-        cwd=[launch_dir],
-        output="screen",
+            "' + (' -s' if '",
+            headless,
+            "' == 'True' else '')",
+        ]
     )
 
-
-    start_gazebo_client_cmd = ExecuteProcess(
-        condition=IfCondition(PythonExpression([" not ", headless])),
-        cmd=["gzclient"],
-        cwd=[launch_dir],
-        output="screen",
+    gz_sim = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory("ros_gz_sim"),
+                "launch",
+                "gz_sim.launch.py",
+            )
+        ),
+        launch_arguments={"gz_args": gz_args}.items(),
     )
+
+    robot_description = {"robot_description": Command(["xacro ", LaunchConfiguration("description_path")])}
+
     start_gazebo_spawner_cmd = Node(
-        package="gazebo_ros",
-        executable="spawn_entity.py",
+        package="ros_gz_sim",
+        executable="create",
         output="screen",
         arguments=[
-            "-entity",
+            "-name",
             robot_name,
             "-topic",
-            "/robot_description",
-            "-robot_namespace",
-            "",
+            "robot_description",
             "-x",
             world_init_x,
             "-y",
@@ -112,6 +124,36 @@ def generate_launch_description():
             "-Y",
             world_init_heading,
         ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    # Bridges gz-sim's clock, IMU and ground-truth odometry topics to ROS 2.
+    # Sensor-specific bridges (2D laser / Velodyne) are declared by the robot
+    # config package (e.g. go2_config) since not every robot has them.
+    gz_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="champ_gz_bridge",
+        output="screen",
+        arguments=[
+            "--ros-args",
+            "-p",
+            "config_file:=" + os.path.join(gz_pkg_share, "config", "gz_bridge.yaml"),
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    contact_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="champ_contact_bridge",
+        output="screen",
+        arguments=[
+            "--ros-args",
+            "-p",
+            "config_file:=" + os.path.join(gz_pkg_share, "config", "contact_bridge.yaml"),
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     # TODO as for right now, running contact sensor results in RTF being reduced by factor of 2x.
@@ -121,28 +163,22 @@ def generate_launch_description():
         package="champ_gazebo",
         executable="contact_sensor",
         output="screen",
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")},links_config],
+        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}, links_config],
         # prefix=['xterm -e gdb -ex run --args'],
     )
 
-    robot_description = {"robot_description": Command(["xacro ", LaunchConfiguration("description_path")])}
-
-
-    load_joint_state_controller = ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
-             'joint_states_controller'],
-        output='screen',
+    load_joint_state_controller = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["joint_states_controller", "--controller-manager-timeout", "60"],
+        output="screen",
     )
 
-    load_joint_trajectory_position_controller = ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
-             'joint_group_position_controller'],
-        output='screen'
-    )
-    load_joint_trajectory_effort_controller = ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
-             'joint_group_effort_controller'],
-        output='screen'
+    load_joint_trajectory_effort_controller = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["joint_group_effort_controller", "--controller-manager-timeout", "60"],
+        output="screen",
     )
 
     # joint_group_position_controller
@@ -152,7 +188,6 @@ def generate_launch_description():
             declare_use_sim_time,
             declare_gui,
             declare_headless,
-            declare_paused,
             declare_lite,
             declare_ros_control_file,
             declare_gazebo_world,
@@ -161,12 +196,14 @@ def generate_launch_description():
             declare_world_init_z,
             declare_world_init_heading,
             declare_description_path,
-            start_gazebo_server_cmd,
-            start_gazebo_client_cmd,
+            set_gz_resource_path,
+            gz_sim,
             start_gazebo_spawner_cmd,
+            gz_bridge,
+            contact_bridge,
             load_joint_state_controller,
             # load_joint_trajectory_position_controller
             load_joint_trajectory_effort_controller,
-            contact_sensor
+            contact_sensor,
         ]
     )

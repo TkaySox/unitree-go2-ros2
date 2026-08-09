@@ -1,0 +1,13 @@
+# Bridges the four foot <sensor type="contact"> topics defined in
+# gazebo.xacro into a single ROS topic that champ_gazebo's contact_sensor
+# node subscribes to. gz-sim publishes each contact sensor on
+# world/<world>/model/<robot>/link/<link>/sensor/<sensor_name>/contact by
+# default; champ_gazebo remaps each to a common "gz/contacts" gz topic via
+# the sensor plugin's <topic> (see gazebo.xacro) before it reaches here in
+# newer setups, but on distros where per-sensor <topic> isn't honored for
+# contact sensors, bridge each foot individually and merge in the node.
+- ros_topic_name: "gz/contacts"
+  gz_topic_name: "gz/contacts"
+  ros_type_name: "ros_gz_interfaces/msg/Contacts"
+  gz_type_name: "gz.msgs.Contacts"
+  direction: GZ_TO_ROS

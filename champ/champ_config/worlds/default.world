@@ -1,8 +1,8 @@
-<sdf version='1.6'>
+<sdf version='1.9'>
   <world name='default'>
     <light name='sun' type='directional'>
       <cast_shadows>1</cast_shadows>
-      <pose frame=''>0 0 10 0 -0 0</pose>
+      <pose >0 0 10 0 -0 0</pose>
       <diffuse>0.8 0.8 0.8 1</diffuse>
       <specular>0.1 0.1 0.1 1</specular>
       <attenuation>
@@ -86,22 +86,22 @@
       <wall_time>0</wall_time>
       <iterations>22823</iterations>
       <model name='ground_plane'>
-        <pose frame=''>0 0 0 0 -0 0</pose>
+        <pose >0 0 0 0 -0 0</pose>
         <scale>1 1 1</scale>
         <link name='link'>
-          <pose frame=''>0 0 0 0 -0 0</pose>
+          <pose >0 0 0 0 -0 0</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>
         </link>
       </model>
       <light name='sun'>
-        <pose frame=''>0 0 10 0 -0 0</pose>
+        <pose >0 0 10 0 -0 0</pose>
       </light>
     </state>
     <gui fullscreen='0'>
       <camera name='user_camera'>
-        <pose frame=''>4.60123 -4.94126 1.71211 0 0.275643 2.35619</pose>
+        <pose >4.60123 -4.94126 1.71211 0 0.275643 2.35619</pose>
         <view_controller>orbit</view_controller>
         <projection_type>perspective</projection_type>
       </camera>

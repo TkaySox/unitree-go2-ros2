@@ -117,6 +117,25 @@ def generate_launch_description():
         }.items(),
     )
 
+    # robot.xacro includes the 2D front laser (laser.xacro), so bridge its
+    # gz "scan" topic to ROS. robot_VLP.xacro (gazebo_velodyne.launch.py)
+    # brings its own Velodyne bridge instead.
+    laser_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="go2_laser_bridge",
+        output="screen",
+        arguments=[
+            "--ros-args",
+            "-p",
+            "config_file:="
+            + os.path.join(
+                get_package_share_directory("champ_gazebo"), "config", "laser_bridge.yaml"
+            ),
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
     return LaunchDescription(
         [
             declare_use_sim_time,
@@ -131,7 +150,8 @@ def generate_launch_description():
             declare_world_init_z,
             declare_world_init_heading,
             bringup_ld,
-            gazebo_ld
+            gazebo_ld,
+            laser_bridge,
 
         ]
     )

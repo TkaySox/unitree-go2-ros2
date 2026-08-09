@@ -1,0 +1,8 @@
+# Velodyne VLP-16 (robot_VLP.xacro / velodyne.xacro) bridge for Gazebo
+# Harmonic. gpu_lidar sensors publish PointCloudPacked; ros_gz_bridge
+# converts it to a standard sensor_msgs/PointCloud2.
+- ros_topic_name: "velodyne_points"
+  gz_topic_name: "velodyne_points"
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "gz.msgs.PointCloudPacked"
+  direction: GZ_TO_ROS
