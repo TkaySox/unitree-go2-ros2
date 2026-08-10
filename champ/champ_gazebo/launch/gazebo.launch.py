@@ -77,15 +77,20 @@ def generate_launch_description():
     )
 
     # Gazebo Harmonic replaces gzserver/gzclient with a single gz sim
-    # process. "-r" runs the world unpaused; drop it if "paused" behavior is
-    # needed. Headless mode maps to gz sim's "-s" (server only) flag.
+    # process. "-r" runs the world unpaused. "-s" (server only, no GUI) is
+    # added whenever the caller asked for headless mode OR gui:=false --
+    # both launch args are honored here, and the comparison is
+    # case-insensitive since launch arguments arrive as raw strings
+    # (headless:=true / headless:=True / gui:=false all need to work).
     gz_args = PythonExpression(
         [
             "'-r ' + '",
             gazebo_world,
-            "' + (' -s' if '",
+            "' + (' -s' if ('",
             headless,
-            "' == 'True' else '')",
+            "'.lower() == 'true' or '",
+            gui,
+            "'.lower() == 'false') else '')",
         ]
     )
 
