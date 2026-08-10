@@ -65,11 +65,14 @@ namespace champ
                 float stance_phase_period =  base_->gait_config.stance_duration * SECONDS_TO_MICROS;
                 float stride_period = stance_phase_period + swing_phase_period;
 
-                if(target_velocity == 0.0f)
+                // Near-zero velocity => freeze gait and stand still (all phases zero).
+                // Reset has_started so the next walk command begins a clean stride cycle.
+                if(target_velocity < 0.001f)
                 {
                     elapsed_time_ref = 0;
-                    last_touchdown_ = 0;
+                    last_touchdown_ = time;
                     has_swung_ = false;
+                    has_started = false;
                     for(unsigned int i = 0; i < 4; i++)
                     {
                         leg_clocks[i] = 0.0f;

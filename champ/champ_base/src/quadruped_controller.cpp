@@ -28,6 +28,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <quadruped_controller.h>
 
+#include <cmath>
+
 champ::PhaseGenerator::Time rosTimeToChampTime(const rclcpp::Time& time)
 {
   return time.nanoseconds() / 1000ul;
@@ -40,7 +42,11 @@ QuadrupedController::QuadrupedController():
     clock_(*this->get_clock()),
     body_controller_(base_),
     leg_controller_(base_, rosTimeToChampTime(clock_.now())),
-    kinematics_(base_)
+    kinematics_(base_),
+    have_cmd_vel_(false),
+    last_cmd_vel_time_(clock_.now()),
+    cmd_vel_timeout_(0.5),
+    cmd_vel_deadband_(0.02)
 {
     std::string joint_control_topic = "joint_group_position_controller/command";
     std::string knee_orientation;
@@ -65,6 +71,18 @@ QuadrupedController::QuadrupedController():
     this->get_parameter("joint_controller_topic",      joint_control_topic);
     this->get_parameter("loop_rate",                   loop_rate);
     this->get_parameter("urdf",                        urdf);
+
+    // Optional: override stand-still policy (defaults keep robot still until cmd_vel).
+    this->get_parameter("cmd_vel_timeout",             cmd_vel_timeout_);
+    this->get_parameter("cmd_vel_deadband",            cmd_vel_deadband_);
+
+    // Explicit stand still until the first cmd_vel message arrives.
+    req_vel_.linear.x = 0.0f;
+    req_vel_.linear.y = 0.0f;
+    req_vel_.linear.z = 0.0f;
+    req_vel_.angular.x = 0.0f;
+    req_vel_.angular.y = 0.0f;
+    req_vel_.angular.z = 0.0f;
     
     cmd_vel_subscription_ = this->create_subscription<geometry_msgs::msg::Twist>(
         "cmd_vel/smooth", 10, std::bind(&QuadrupedController::cmdVelCallback_, this,  std::placeholders::_1));
@@ -81,7 +99,10 @@ QuadrupedController::QuadrupedController():
         joint_states_publisher_ = this->create_publisher<sensor_msgs::msg::JointState>("joint_states", 10);
     }
 
-    if(publish_foot_contacts_ && !in_gazebo_)
+    // Publish gait-phase foot contacts whenever requested. Previously this was
+    // skipped in Gazebo because champ_gazebo's contact_sensor provided real
+    // contacts; with contact sensors disabled we always use gait-phase estimates.
+    if(publish_foot_contacts_)
     {
         foot_contacts_publisher_   = this->create_publisher<champ_msgs::msg::ContactsStamped>("foot_contacts", 10);
     }
@@ -96,6 +117,30 @@ QuadrupedController::QuadrupedController():
     loop_timer_ = this->create_wall_timer(
          std::chrono::duration_cast<std::chrono::milliseconds>(period), std::bind(&QuadrupedController::controlLoop_, this));
     req_pose_.position.z = gait_config_.nominal_height;
+
+    RCLCPP_INFO(this->get_logger(),
+        "Standing still until cmd_vel (timeout=%.2fs, deadband=%.3f)",
+        cmd_vel_timeout_, cmd_vel_deadband_);
+}
+
+void QuadrupedController::applyCmdVelStandPolicy_()
+{
+    // No cmd_vel yet, or last command too old -> hold stand pose.
+    if(!have_cmd_vel_)
+    {
+        req_vel_.linear.x = 0.0f;
+        req_vel_.linear.y = 0.0f;
+        req_vel_.angular.z = 0.0f;
+        return;
+    }
+
+    const double age = (clock_.now() - last_cmd_vel_time_).seconds();
+    if(cmd_vel_timeout_ > 0.0 && age > cmd_vel_timeout_)
+    {
+        req_vel_.linear.x = 0.0f;
+        req_vel_.linear.y = 0.0f;
+        req_vel_.angular.z = 0.0f;
+    }
 }
 
 void QuadrupedController::controlLoop_()
@@ -103,6 +148,8 @@ void QuadrupedController::controlLoop_()
     float target_joint_positions[12];
     geometry::Transformation target_foot_positions[4];
     bool foot_contacts[4];
+
+    applyCmdVelStandPolicy_();
 
     body_controller_.poseCommand(target_foot_positions, req_pose_);
 
@@ -115,9 +162,17 @@ void QuadrupedController::controlLoop_()
 
 void QuadrupedController::cmdVelCallback_(const geometry_msgs::msg::Twist::SharedPtr msg)
 {
-    req_vel_.linear.x = msg->linear.x;
-    req_vel_.linear.y = msg->linear.y;
-    req_vel_.angular.z = msg->angular.z;
+    have_cmd_vel_ = true;
+    last_cmd_vel_time_ = clock_.now();
+
+    // Deadband: treat tiny stick noise as zero so the robot stays standing.
+    auto apply_deadband = [this](double v) -> float {
+        return (std::fabs(v) < cmd_vel_deadband_) ? 0.0f : static_cast<float>(v);
+    };
+
+    req_vel_.linear.x = apply_deadband(msg->linear.x);
+    req_vel_.linear.y = apply_deadband(msg->linear.y);
+    req_vel_.angular.z = apply_deadband(msg->angular.z);
 }
 
 void QuadrupedController::cmdPoseCallback_(const geometry_msgs::msg::Pose::SharedPtr msg)
@@ -156,7 +211,9 @@ void QuadrupedController::publishJoints_(float target_joints[12])
         trajectory_msgs::msg::JointTrajectoryPoint point;
         point.positions.resize(12);
 
-        point.time_from_start = rclcpp::Duration::from_seconds(1.0 / 60.0);
+        // Longer horizon than 1/60s keeps desired joint velocities moderate for the
+        // effort PID (short horizons cause huge qd_des and thrashing when standing).
+        point.time_from_start = rclcpp::Duration::from_seconds(0.1);
         for(size_t i = 0; i < 12; i++)
         {
             point.positions[i] = target_joints[i];
@@ -187,20 +244,23 @@ void QuadrupedController::publishJoints_(float target_joints[12])
 
 void QuadrupedController::publishFootContacts_(bool foot_contacts[4])
 {
-    if(publish_foot_contacts_ && !in_gazebo_)
+    (void)foot_contacts;
+    if(publish_foot_contacts_)
     {
         champ_msgs::msg::ContactsStamped contacts_msg;
         contacts_msg.header.stamp = clock_.now();
         contacts_msg.contacts.resize(4);
-        
-        std::string s2;
-       for(size_t i = 0; i < 4; i++)
+
+        // Standing (no walk command): all feet planted. Walking: use gait phase.
+        const bool standing =
+            !have_cmd_vel_ ||
+            (std::fabs(req_vel_.linear.x) < 1e-4f &&
+             std::fabs(req_vel_.linear.y) < 1e-4f &&
+             std::fabs(req_vel_.angular.z) < 1e-4f);
+
+        for(size_t i = 0; i < 4; i++)
         {
-            //This is only published when there's no feedback on the robot
-            //that a leg is in contact with the ground
-            //For such cases, we use the stance phase in the gait for foot contacts
-            contacts_msg.contacts[i] = base_.legs[i]->gait_phase();
-            s2.append(std::to_string(contacts_msg.contacts[i]) + " ");
+            contacts_msg.contacts[i] = standing ? true : base_.legs[i]->gait_phase();
         }
         foot_contacts_publisher_->publish(contacts_msg);
     }

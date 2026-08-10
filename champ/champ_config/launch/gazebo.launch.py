@@ -89,7 +89,8 @@ def generate_launch_description():
             "rviz": LaunchConfiguration("rviz"),
             "joint_controller_topic": "joint_group_effort_controller/joint_trajectory",
             "hardware_connected": "false",
-            "publish_foot_contacts": "false",
+            # Gait-phase contacts from quadruped_controller (Gazebo contact sensors disabled)
+            "publish_foot_contacts": "true",
             "close_loop_odom": "true",
         }.items(),
     )

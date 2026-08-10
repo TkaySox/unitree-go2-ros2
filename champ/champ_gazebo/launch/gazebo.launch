@@ -33,7 +33,8 @@
             ">
         </node>
 
-        <node pkg="champ_gazebo" name="contact_sensor" type="contact_sensor" output="screen"/>
+        <!-- contact_sensor disabled: gait-phase contacts come from quadruped_controller -->
+        <!-- <node pkg="champ_gazebo" name="contact_sensor" type="contact_sensor" output="screen"/> -->
     </group>
 </launch>
 

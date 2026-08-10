@@ -54,13 +54,6 @@ def generate_launch_description():
 
     declare_description_path = DeclareLaunchArgument(name="description_path", default_value=default_model_path, description="Absolute path to robot urdf file")
 
-    config_pkg_share = launch_ros.substitutions.FindPackageShare(
-        package="champ_config"
-    ).find("champ_config")
-
-    links_config = os.path.join(config_pkg_share, "config/links/links.yaml")
-    launch_dir = os.path.join(pkg_share, "launch")
-
     # Make sure gz-sim can find the meshes referenced by go2_description /
     # champ_description / velodyne_description when they are loaded as an
     # SDF model (xacro -> URDF -> SDF happens implicitly when the robot is
@@ -148,29 +141,28 @@ def generate_launch_description():
         parameters=[{"use_sim_time": use_sim_time}],
     )
 
-    contact_bridge = Node(
-        package="ros_gz_bridge",
-        executable="parameter_bridge",
-        name="champ_contact_bridge",
-        output="screen",
-        arguments=[
-            "--ros-args",
-            "-p",
-            "config_file:=" + os.path.join(gz_pkg_share, "config", "contact_bridge.yaml"),
-        ],
-        parameters=[{"use_sim_time": use_sim_time}],
-    )
-
-    # TODO as for right now, running contact sensor results in RTF being reduced by factor of 2x.
-    # So it needs to be fixed before using that. Unsure what it does actually because even without it
-    # Champ seems to be all right
-    contact_sensor = Node(
-        package="champ_gazebo",
-        executable="contact_sensor",
-        output="screen",
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}, links_config],
-        # prefix=['xterm -e gdb -ex run --args'],
-    )
+    # Foot contact sensors are disabled. quadruped_controller publishes
+    # gait-phase foot contacts instead (publish_foot_contacts:=true).
+    # Re-enable contact_bridge + contact_sensor below if you want real
+    # Gazebo contact feedback (historically halved RTF).
+    # contact_bridge = Node(
+    #     package="ros_gz_bridge",
+    #     executable="parameter_bridge",
+    #     name="champ_contact_bridge",
+    #     output="screen",
+    #     arguments=[
+    #         "--ros-args",
+    #         "-p",
+    #         "config_file:=" + os.path.join(gz_pkg_share, "config", "contact_bridge.yaml"),
+    #     ],
+    #     parameters=[{"use_sim_time": use_sim_time}],
+    # )
+    # contact_sensor = Node(
+    #     package="champ_gazebo",
+    #     executable="contact_sensor",
+    #     output="screen",
+    #     parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}, links_config],
+    # )
 
     load_joint_state_controller = Node(
         package="controller_manager",
@@ -205,10 +197,10 @@ def generate_launch_description():
             gz_sim,
             start_gazebo_spawner_cmd,
             gz_bridge,
-            contact_bridge,
+            # contact_bridge,  # disabled — no foot contact sensors
             load_joint_state_controller,
             # load_joint_trajectory_position_controller
             load_joint_trajectory_effort_controller,
-            contact_sensor,
+            # contact_sensor,  # disabled — gait-phase contacts from controller
         ]
     )

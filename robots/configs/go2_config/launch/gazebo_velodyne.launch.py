@@ -64,7 +64,9 @@ def generate_launch_description():
     )
     declare_world_init_x = DeclareLaunchArgument("world_init_x", default_value="0.0")
     declare_world_init_y = DeclareLaunchArgument("world_init_y", default_value="0.0")
-    declare_world_init_z = DeclareLaunchArgument("world_init_z", default_value="0.275")
+    # Slightly above nominal stand height (0.225) so feet settle onto ground
+    # without collapsing from a high drop or starting already interpenetrating.
+    declare_world_init_z = DeclareLaunchArgument("world_init_z", default_value="0.32")
     declare_world_init_heading = DeclareLaunchArgument(
         "world_init_heading", default_value="0.0"
     )
@@ -90,7 +92,8 @@ def generate_launch_description():
             "rviz": LaunchConfiguration("rviz"),
             "joint_controller_topic": "joint_group_effort_controller/joint_trajectory",
             "hardware_connected": "false",
-            "publish_foot_contacts": "false",
+            # Gait-phase contacts from quadruped_controller (Gazebo contact sensors disabled)
+            "publish_foot_contacts": "true",
             "close_loop_odom": "true",
         }.items(),
     )

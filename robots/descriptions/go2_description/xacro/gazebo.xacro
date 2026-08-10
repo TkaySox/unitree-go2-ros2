@@ -77,46 +77,10 @@
         </sensor>
     </gazebo>
 
-    <!-- Foot contact sensors, read by champ_gazebo's contact_sensor node via
-         ros_gz_bridge (see champ_gazebo/config/contact_bridge.yaml). Gazebo
-         Classic's contact state was read out-of-band via gazebo::transport;
-         Harmonic exposes it as a first-class <sensor type="contact">. -->
-    <gazebo reference="lf_foot_link">
-        <sensor name="lf_foot_contact" type="contact">
-            <always_on>true</always_on>
-            <update_rate>50</update_rate>
-            <contact>
-                <collision>lf_foot_link_collision</collision>
-            </contact>
-        </sensor>
-    </gazebo>
-    <gazebo reference="rf_foot_link">
-        <sensor name="rf_foot_contact" type="contact">
-            <always_on>true</always_on>
-            <update_rate>50</update_rate>
-            <contact>
-                <collision>rf_foot_link_collision</collision>
-            </contact>
-        </sensor>
-    </gazebo>
-    <gazebo reference="lh_foot_link">
-        <sensor name="lh_foot_contact" type="contact">
-            <always_on>true</always_on>
-            <update_rate>50</update_rate>
-            <contact>
-                <collision>lh_foot_link_collision</collision>
-            </contact>
-        </sensor>
-    </gazebo>
-    <gazebo reference="rh_foot_link">
-        <sensor name="rh_foot_contact" type="contact">
-            <always_on>true</always_on>
-            <update_rate>50</update_rate>
-            <contact>
-                <collision>rh_foot_link_collision</collision>
-            </contact>
-        </sensor>
-    </gazebo>
+    <!-- Foot contact sensors DISABLED. State estimation uses gait-phase
+         contacts published by quadruped_controller instead. Re-enable the
+         <sensor type="contact"> blocks and champ_gazebo contact_sensor /
+         contact_bridge if real sim contact feedback is needed. -->
 
     <!-- <gazebo reference="base_link">
         <turnGravityOff>false</turnGravityOff>

@@ -80,10 +80,17 @@ class QuadrupedController: public rclcpp::Node
     bool publish_joint_control_;
     bool in_gazebo_;
 
+    // Stand still until a recent non-zero cmd_vel is received.
+    bool have_cmd_vel_;
+    rclcpp::Time last_cmd_vel_time_;
+    double cmd_vel_timeout_;
+    double cmd_vel_deadband_;
+
     void controlLoop_();
     
     void publishJoints_(float target_joints[12]);
     void publishFootContacts_(bool foot_contacts[4]);
+    void applyCmdVelStandPolicy_();
 
     void cmdVelCallback_(const geometry_msgs::msg::Twist::SharedPtr msg);
     void cmdPoseCallback_(const geometry_msgs::msg::Pose::SharedPtr msg);

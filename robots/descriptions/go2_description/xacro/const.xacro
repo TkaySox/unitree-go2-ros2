@@ -49,9 +49,14 @@
     <xacro:property name="calf_offset_z" value="-0.213"/>
  
 
-    <!-- joint limits -->
-    <xacro:property name="damping" value="0.01"/>
-    <xacro:property name="friction" value="0.2"/>
+    <!-- joint limits / passive dynamics (higher damping damps effort-PID thrashing) -->
+    <xacro:property name="damping" value="1.0"/>
+    <xacro:property name="friction" value="0.5"/>
+
+    <!-- Default stand pose matching champ quadruped_controller IK at nominal_height -->
+    <xacro:property name="stand_hip" value="0.0"/>
+    <xacro:property name="stand_thigh" value="1.0144"/>
+    <xacro:property name="stand_calf" value="-2.0287"/>
     <xacro:property name="hip_position_max" value="1.0472"/>
     <xacro:property name="hip_position_min" value="-1.0472"/>
     <xacro:property name="hip_velocity_max" value="30.1"/>
