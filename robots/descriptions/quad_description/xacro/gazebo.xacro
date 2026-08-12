@@ -1,0 +1,92 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Ground-truth odometry (Gazebo Harmonic OdometryPublisher).
+       Bridged to ROS by champ_gazebo/config/gz_bridge.yaml. -->
+  <gazebo>
+    <plugin filename="gz-sim-odometry-publisher-system"
+            name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_topic>odom/ground_truth</odom_topic>
+      <odom_publish_frequency>10</odom_publish_frequency>
+      <dimensions>3</dimensions>
+    </plugin>
+  </gazebo>
+
+  <gazebo>
+    <plugin filename="gz_ros2_control-system"
+            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find quad_description)/config/ros_control/ros_control.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+      <topic>imu</topic>
+      <gz_frame_id>imu_link</gz_frame_id>
+      <imu>
+        <angular_velocity>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>2e-4</stddev></noise></z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>1.7e-2</stddev></noise></z>
+        </linear_acceleration>
+      </imu>
+    </sensor>
+  </gazebo>
+
+  <!-- Body friction -->
+  <gazebo reference="body">
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <kp>10000.0</kp>
+    <kd>1.0</kd>
+  </gazebo>
+
+  <!-- Foot contact friction (higher grip) -->
+  <xacro:macro name="foot_gazebo" params="link">
+    <gazebo reference="${link}">
+      <mu1>0.8</mu1>
+      <mu2>0.8</mu2>
+      <self_collide>1</self_collide>
+      <kp>10000.0</kp>
+      <kd>1.0</kd>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:macro name="leg_link_gazebo" params="link">
+    <gazebo reference="${link}">
+      <mu1>0.2</mu1>
+      <mu2>0.2</mu2>
+      <self_collide>1</self_collide>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:leg_link_gazebo link="lf_hip_link"/>
+  <xacro:leg_link_gazebo link="lf_upper_leg_link"/>
+  <xacro:leg_link_gazebo link="lf_lower_leg_link"/>
+  <xacro:foot_gazebo link="lf_foot_link"/>
+
+  <xacro:leg_link_gazebo link="rf_hip_link"/>
+  <xacro:leg_link_gazebo link="rf_upper_leg_link"/>
+  <xacro:leg_link_gazebo link="rf_lower_leg_link"/>
+  <xacro:foot_gazebo link="rf_foot_link"/>
+
+  <xacro:leg_link_gazebo link="lh_hip_link"/>
+  <xacro:leg_link_gazebo link="lh_upper_leg_link"/>
+  <xacro:leg_link_gazebo link="lh_lower_leg_link"/>
+  <xacro:foot_gazebo link="lh_foot_link"/>
+
+  <xacro:leg_link_gazebo link="rh_hip_link"/>
+  <xacro:leg_link_gazebo link="rh_upper_leg_link"/>
+  <xacro:leg_link_gazebo link="rh_lower_leg_link"/>
+  <xacro:foot_gazebo link="rh_foot_link"/>
+
+</robot>

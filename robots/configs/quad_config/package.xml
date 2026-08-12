@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>quad_config</name>
+  <version>0.1.0</version>
+  <description>
+    CHAMP configuration for the custom SolidWorks-exported quadruped (ROS 2 Jazzy).
+  </description>
+
+  <maintainer email="todo@email.com">quad</maintainer>
+  <author>quad</author>
+  <license>BSD</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>launch_ros</build_depend>
+
+  <exec_depend>quad_description</exec_depend>
+  <exec_depend>champ_bringup</exec_depend>
+  <exec_depend>champ_gazebo</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

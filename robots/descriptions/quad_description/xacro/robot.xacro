@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!-- Top-level robot description for ROS 2 Jazzy + Gazebo Harmonic + CHAMP.
+     Geometry from SolidWorks export (CHAMP joint/link names).
+     Simulation / control tags layered via xacro includes. -->
+<robot name="quad" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find quad_description)/urdf/quad_content.xacro"/>
+  <xacro:include filename="$(find quad_description)/xacro/ros2_control.xacro"/>
+  <xacro:include filename="$(find quad_description)/xacro/gazebo.xacro"/>
+
+</robot>

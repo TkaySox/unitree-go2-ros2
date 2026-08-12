@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Effort interface limits (Nm). Match joint effort limits in the URDF. -->
+  <xacro:property name="hip_torque_max" value="12.0"/>
+  <xacro:property name="thigh_torque_max" value="20.0"/>
+  <xacro:property name="calf_torque_max" value="20.0"/>
+
+  <!-- Initial joint positions when spawned in Gazebo (rad).
+       SolidWorks zero pose is used as the export reference; tune after first sim. -->
+  <xacro:property name="stand_hip" value="0.0"/>
+  <xacro:property name="stand_thigh" value="0.0"/>
+  <xacro:property name="stand_calf" value="0.0"/>
+
+  <xacro:macro name="leg_ros2_control" params="prefix">
+    <ros2_control name="${prefix}_system" type="system">
+      <hardware>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+      <joint name="${prefix}_hip_joint">
+        <command_interface name="effort">
+          <param name="min">${-hip_torque_max}</param>
+          <param name="max">${hip_torque_max}</param>
+        </command_interface>
+        <state_interface name="position">
+          <param name="initial_value">${stand_hip}</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${prefix}_upper_leg_joint">
+        <command_interface name="effort">
+          <param name="min">${-thigh_torque_max}</param>
+          <param name="max">${thigh_torque_max}</param>
+        </command_interface>
+        <state_interface name="position">
+          <param name="initial_value">${stand_thigh}</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${prefix}_lower_leg_joint">
+        <command_interface name="effort">
+          <param name="min">${-calf_torque_max}</param>
+          <param name="max">${calf_torque_max}</param>
+        </command_interface>
+        <state_interface name="position">
+          <param name="initial_value">${stand_calf}</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+    </ros2_control>
+  </xacro:macro>
+
+  <xacro:leg_ros2_control prefix="lf"/>
+  <xacro:leg_ros2_control prefix="rf"/>
+  <xacro:leg_ros2_control prefix="lh"/>
+  <xacro:leg_ros2_control prefix="rh"/>
+
+</robot>

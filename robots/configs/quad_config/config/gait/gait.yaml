@@ -1,0 +1,18 @@
+/**:
+  ros__parameters:
+    gait:
+      # Knee bend direction: ">>" both knees back (dog-like).
+      # Try "<<" or "><" if legs fold the wrong way in sim.
+      knee_orientation: ">>"
+      pantograph_leg: false
+      odom_scaler: 1.0
+      max_linear_velocity_x: 0.25
+      max_linear_velocity_y: 0.15
+      max_angular_velocity_z: 0.5
+      com_x_translation: 0.0
+      swing_height: 0.03
+      stance_depth: 0.005
+      stance_duration: 0.25
+      # Hip-to-ground while walking. From SolidWorks approx hip+thigh+calf ~0.27 m extended;
+      # start lower so the robot can stand stably. Tune after first spawn.
+      nominal_height: 0.16
