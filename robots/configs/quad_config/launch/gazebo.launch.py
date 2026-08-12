@@ -49,8 +49,8 @@ def generate_launch_description():
     )
     declare_world_init_x = DeclareLaunchArgument("world_init_x", default_value="0.0")
     declare_world_init_y = DeclareLaunchArgument("world_init_y", default_value="0.0")
-    # Spawn ~45 cm above ground so the robot drops onto its feet safely.
-    declare_world_init_z = DeclareLaunchArgument("world_init_z", default_value="0.45")
+    # Standing hip height ~0.22 m; spawn a bit higher so feet settle onto ground.
+    declare_world_init_z = DeclareLaunchArgument("world_init_z", default_value="0.30")
     declare_world_init_heading = DeclareLaunchArgument(
         "world_init_heading", default_value="0.0"
     )

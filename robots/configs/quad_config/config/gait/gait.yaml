@@ -13,6 +13,6 @@
       swing_height: 0.03
       stance_depth: 0.005
       stance_duration: 0.25
-      # Hip-to-ground while walking. From SolidWorks approx hip+thigh+calf ~0.27 m extended;
-      # start lower so the robot can stand stably. Tune after first spawn.
-      nominal_height: 0.16
+      # Standing height from SolidWorks export (q=0). Front feet ~0.226 m below
+      # base, rear ~0.220 m. Use 0.220 so CHAMP stand IK holds joints near zero.
+      nominal_height: 0.220

@@ -6,8 +6,8 @@
   <xacro:property name="thigh_torque_max" value="20.0"/>
   <xacro:property name="calf_torque_max" value="20.0"/>
 
-  <!-- Initial joint positions when spawned in Gazebo (rad).
-       SolidWorks zero pose is used as the export reference; tune after first sim. -->
+  <!-- SolidWorks export standing pose is joint angles = 0.
+       CHAMP nominal_height matches that standing height, so IK also holds ~0. -->
   <xacro:property name="stand_hip" value="0.0"/>
   <xacro:property name="stand_thigh" value="0.0"/>
   <xacro:property name="stand_calf" value="0.0"/>
