@@ -6,14 +6,20 @@
       knee_orientation: ">>"
       pantograph_leg: false
       odom_scaler: 1.0
-      max_linear_velocity_x: 0.25
-      max_linear_velocity_y: 0.15
-      max_angular_velocity_z: 0.5
+
+      # --- step size / "legs move too much" ---
+      # Step length ≈ velocity × stance_duration. Lower max_linear_velocity_x
+      # first if strides are huge in forward/back teleop.
+      max_linear_velocity_x: 0.12   # was 0.25 — smaller max stride
+      max_linear_velocity_y: 0.08
+      max_angular_velocity_z: 0.35
+      # Shorter stance → smaller steps at the same speed (slightly faster cadence).
+      stance_duration: 0.20         # was 0.25
+
+      # How high feet lift in swing (metres). Lower if legs flail upward.
+      swing_height: 0.015           # was 0.03
+      stance_depth: 0.0
+
       com_x_translation: 0.0
-      swing_height: 0.03
-      stance_depth: 0.005
-      stance_duration: 0.25
-      # Standing height. Export zero_stance is ~0.22–0.226 m; use a slightly
-      # lower height so stand IK has a clear crouch solution (avoids the
-      # numerical edge where lf_upper_leg_joint was ~0- and CHAMP flipped it to π).
-      nominal_height: 0.200
+      # Slightly higher stand → legs more extended, less crouch bounce in RViz.
+      nominal_height: 0.210

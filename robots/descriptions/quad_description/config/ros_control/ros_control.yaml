@@ -31,20 +31,21 @@ joint_group_effort_controller:
       - position
       - velocity
 
-    # Starting gains for a ~1–2 kg class robot. Raise P if legs sag; raise D if oscillating.
+    # Stiffer hold + strong D: soft P made the light robot sag and bounce more.
+    # Pattern matches go2_config (worked better for stand stability).
     gains:
-      lf_hip_joint:       {p: 40.0, i: 0.0, d: 2.5, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      lf_upper_leg_joint: {p: 60.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      lf_lower_leg_joint: {p: 60.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      rf_hip_joint:       {p: 40.0, i: 0.0, d: 2.5, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      rf_upper_leg_joint: {p: 60.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      rf_lower_leg_joint: {p: 60.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      lh_hip_joint:       {p: 40.0, i: 0.0, d: 2.5, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      lh_upper_leg_joint: {p: 60.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      lh_lower_leg_joint: {p: 60.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      rh_hip_joint:       {p: 40.0, i: 0.0, d: 2.5, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      rh_upper_leg_joint: {p: 60.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
-      rh_lower_leg_joint: {p: 60.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      lf_hip_joint:       {p: 50.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      lf_upper_leg_joint: {p: 80.0, i: 0.0, d: 4.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      lf_lower_leg_joint: {p: 80.0, i: 0.0, d: 4.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      rf_hip_joint:       {p: 50.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      rf_upper_leg_joint: {p: 80.0, i: 0.0, d: 4.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      rf_lower_leg_joint: {p: 80.0, i: 0.0, d: 4.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      lh_hip_joint:       {p: 50.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      lh_upper_leg_joint: {p: 80.0, i: 0.0, d: 4.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      lh_lower_leg_joint: {p: 80.0, i: 0.0, d: 4.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      rh_hip_joint:       {p: 50.0, i: 0.0, d: 3.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      rh_upper_leg_joint: {p: 80.0, i: 0.0, d: 4.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
+      rh_lower_leg_joint: {p: 80.0, i: 0.0, d: 4.0, i_clamp: 0.0, ff_velocity_scale: 0.0}
 
     allow_partial_joints_goal: true
     allow_integration_in_goal_trajectories: true
