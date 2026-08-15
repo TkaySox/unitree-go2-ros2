@@ -21,5 +21,6 @@
       stance_depth: 0.0
 
       com_x_translation: 0.0
-      # Slightly higher stand → legs more extended, less crouch bounce in RViz.
-      nominal_height: 0.210
+      # Default stand height (metres). Runtime /body_pose.position.z is an offset
+      # on top of this value.
+      nominal_height: 0.13
