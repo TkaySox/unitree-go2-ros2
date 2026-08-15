@@ -112,18 +112,22 @@ namespace champ
                 lower_leg_joint += ik_beta - ik_alpha;
                 upper_leg_joint += ik_alpha;
 
-                // //switch back the upper leg joint angle to a sane angle once the target is unreachable
-                // //TODO: create unreachability checks
+                // Alternate-branch unwrap for knee direction. Use a small epsilon so
+                // near-zero numerical noise (common with SolidWorks-export frames that
+                // bake bend into link XYZ via ik_alpha/ik_beta) does NOT jump the
+                // upper joint to ~π and collapse the leg at stand.
+                // TODO: create unreachability checks
+                const float kUpperFlipEps = 1e-3f;
                 if(leg.knee_direction() < 0)
                 {
-                    if(upper_leg_joint < 0)
+                    if(upper_leg_joint < -kUpperFlipEps)
                     {
                         upper_leg_joint = upper_leg_joint +  M_PI;
                     }
                 }
                 else 
                 {
-                    if(upper_leg_joint > 0)
+                    if(upper_leg_joint > kUpperFlipEps)
                     {
                         upper_leg_joint = upper_leg_joint +  M_PI;
                     }

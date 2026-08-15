@@ -13,6 +13,7 @@
       swing_height: 0.03
       stance_depth: 0.005
       stance_duration: 0.25
-      # Standing height from SolidWorks export (q=0). Front feet ~0.226 m below
-      # base, rear ~0.220 m. Use 0.220 so CHAMP stand IK holds joints near zero.
-      nominal_height: 0.220
+      # Standing height. Export zero_stance is ~0.22–0.226 m; use a slightly
+      # lower height so stand IK has a clear crouch solution (avoids the
+      # numerical edge where lf_upper_leg_joint was ~0- and CHAMP flipped it to π).
+      nominal_height: 0.200
