@@ -38,12 +38,7 @@
       </geometry>
       <material name="silver"><color rgba="0.79 0.82 0.93 1"/></material>
     </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="file://$(find quad_description)/meshes/base_link.STL"/>
-      </geometry>
-    </collision>
+    <!-- No collision on base_link — body box handles chassis contact. -->
   </link>
 
   <link name="body">
@@ -59,10 +54,11 @@
       </geometry>
       <material name="silver"><color rgba="0.79 0.82 0.93 1"/></material>
     </visual>
+    <!-- Keep body collision above the hips so it does not hit the ground and flip the robot. -->
     <collision>
-      <origin xyz="0.05 0 0.03" rpy="0 0 0"/>
+      <origin xyz="0.05 0 0.06" rpy="0 0 0"/>
       <geometry>
-        <box size="0.28 0.16 0.08"/>
+        <box size="0.25 0.14 0.06"/>
       </geometry>
     </collision>
   </link>
@@ -156,10 +152,11 @@
         </geometry>
         <material name="silver"><color rgba="0.79 0.82 0.93 1"/></material>
       </visual>
+      <!-- Primitives only: full STL collisions often explode / flip the robot in Gazebo. -->
       <collision>
-        <origin xyz="0 0 0" rpy="${hip_mesh_rpy}"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="file://$(find quad_description)/meshes/${mesh_hip}"/>
+          <sphere radius="0.025"/>
         </geometry>
       </collision>
     </link>
@@ -187,9 +184,9 @@
         <material name="silver"><color rgba="0.79 0.82 0.93 1"/></material>
       </visual>
       <collision>
-        <origin xyz="0 0 0" rpy="${upper_mesh_rpy}"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="file://$(find quad_description)/meshes/${mesh_thigh}"/>
+          <sphere radius="0.02"/>
         </geometry>
       </collision>
     </link>
@@ -217,9 +214,9 @@
         <material name="silver"><color rgba="0.79 0.82 0.93 1"/></material>
       </visual>
       <collision>
-        <origin xyz="0 0 0" rpy="${lower_mesh_rpy}"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="file://$(find quad_description)/meshes/${mesh_calf}"/>
+          <sphere radius="0.018"/>
         </geometry>
       </collision>
     </link>
