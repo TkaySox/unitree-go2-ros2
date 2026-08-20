@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>quad_servo_driver</name>
+  <version>0.1.0</version>
+  <description>
+    Bridge CHAMP joint_states to Feetech serial bus servos (FT5330M / STS3215)
+    via Waveshare USB adapter, with per-joint mechanical calibration offsets.
+  </description>
+  <maintainer email="todo@email.com">quad</maintainer>
+  <license>BSD</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+
+  <exec_depend>python3-yaml</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
