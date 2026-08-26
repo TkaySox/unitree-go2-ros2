@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Dict, List, Optional
 
 import yaml
@@ -24,8 +25,10 @@ from quad_servo_driver.joint_map import (
     JOINT_ID_MAP,
     JOINT_ORDER,
     SERIAL_PORT,
+    TICKS_PER_REV,
     JointConfig,
     angle_to_ticks,
+    shortest_tick_delta,
     speed_acc_for_model,
 )
 from quad_servo_driver.pwm_hips import PwmHipBank
@@ -43,6 +46,7 @@ class QuadServoHardware:
         logger=None,
         enable_serial: bool = True,
         enable_pwm: bool = True,
+        apply_offsets: bool = False,
     ) -> None:
         self.port = port
         self.baudrate = baudrate
@@ -50,10 +54,13 @@ class QuadServoHardware:
         self.log = logger or _log
         self.enable_serial = enable_serial
         self.enable_pwm = enable_pwm
+        # When False (default): URDF rad → ticks with no mechanical offset.
+        # Use True only if horns do not match the RViz/URDF pose.
+        self.apply_offsets = apply_offsets
 
         self.bus: Optional[ScsBus] = None
         self.pwm = PwmHipBank(logger=self.log)
-        self.offsets: Dict[str, int] = {}  # serial tick offsets
+        self.offsets: Dict[str, int] = {}  # serial tick offsets (optional)
         self.pwm_homes: Dict[str, int] = {}  # calibrated pulse_home_us
         self.online_joints: List[str] = []
 
@@ -115,19 +122,61 @@ class QuadServoHardware:
         return online
 
     def load_or_calibrate(self, force: bool = False) -> None:
+        """
+        Default (apply_offsets=False): identity mapping — all offsets 0.
+        RViz/URDF angles are sent straight to the servos.
+
+        If apply_offsets=True: load YAML offsets, or (re)measure them when
+        force=True / file missing.
+        """
+        if not self.apply_offsets:
+            for name in JOINT_ORDER:
+                self.offsets[name] = 0
+                cfg = JOINT_ID_MAP[name]
+                if cfg.interface == IFACE_PWM:
+                    self.pwm_homes[name] = cfg.pulse_home_us
+                    if name in self.pwm._servos:
+                        self.pwm.set_home_pulse(name, cfg.pulse_home_us)
+            self.log.info(
+                "Using URDF angles directly (apply_offsets=false) — no tick offsets."
+            )
+            # Keep a zeroed YAML so tools see a consistent file on disk.
+            if force or not os.path.isfile(self.calibration_file):
+                self._save_calibration()
+            return
+
         if not force and os.path.isfile(self.calibration_file):
             self._load_calibration()
             return
         self.log.warning(
-            "Calibrating (URDF HOME pose required for serial joints). "
+            "Calibrating mechanical offsets (URDF HOME pose required). "
             f"file={self.calibration_file} force={force}"
         )
         self._calibrate_from_hardware()
         self._save_calibration()
 
     def _calibrate_from_hardware(self) -> None:
+        """Legacy: assume robot is at each joint's urdf_home_rad."""
+        angles = {
+            name: JOINT_ID_MAP[name].urdf_home_rad for name in JOINT_ORDER
+        }
+        self.calibrate_from_angles(angles, save=False)
+
+    def calibrate_from_angles(
+        self, angles: Dict[str, float], save: bool = True
+    ) -> None:
+        """
+        Bind current servo ticks to the given URDF angles (no motion).
+
+        offset = raw_ticks_now − angle_to_ticks(angle_now)
+
+        After this, commanding those same angles holds the robot still.
+        """
+        self.apply_offsets = True
         for name in JOINT_ORDER:
             cfg = JOINT_ID_MAP[name]
+            angle = float(angles.get(name, cfg.urdf_home_rad))
+
             if name not in self.online_joints and self.online_joints:
                 self.offsets[name] = 0
                 continue
@@ -136,9 +185,7 @@ class QuadServoHardware:
                 if self.bus is None:
                     self.offsets[name] = 0
                     continue
-                ideal = angle_to_ticks(
-                    cfg.urdf_home_rad, cfg.direction, cfg.urdf_home_rad
-                )
+                ideal = angle_to_ticks(angle, cfg.direction, cfg.urdf_home_rad)
                 pos, _spd, result, error = self.bus.read_pos_speed(cfg.servo_id)
                 if pos is None:
                     self.log.error(
@@ -147,22 +194,25 @@ class QuadServoHardware:
                     )
                     self.offsets[name] = 0
                     continue
-                self.offsets[name] = pos - ideal
+                self.offsets[name] = int(pos) - ideal
                 self.log.info(
                     f"CAL serial {name} id={cfg.servo_id}: "
-                    f"raw={pos} ideal={ideal} offset={self.offsets[name]}"
+                    f"angle={angle:.4f} rad raw={pos} ideal={ideal} "
+                    f"offset={self.offsets[name]}"
                 )
 
             elif cfg.interface == IFACE_PWM:
-                # No feedback: keep configured pulse_home_us as calibrated home.
-                # Pose the hip horn where you want zero; we store that pulse as home.
                 self.pwm_homes[name] = cfg.pulse_home_us
-                self.pwm.set_home_pulse(name, cfg.pulse_home_us)
+                if name in self.pwm._servos:
+                    self.pwm.set_home_pulse(name, cfg.pulse_home_us)
                 self.offsets[name] = 0
                 self.log.info(
                     f"CAL pwm {name} BCM{cfg.gpio_pin}: "
-                    f"pulse_home_us={cfg.pulse_home_us} (open-loop, set in joint_map)"
+                    f"pulse_home_us={cfg.pulse_home_us} (open-loop)"
                 )
+
+        if save:
+            self._save_calibration()
 
     def _load_calibration(self) -> None:
         with open(self.calibration_file, "r", encoding="utf-8") as f:
@@ -189,13 +239,15 @@ class QuadServoHardware:
         os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
         payload = {
             "note": (
-                "serial offset = raw_tick_at_home - 2048; "
-                "pwm_homes = pulse_us at URDF home (open-loop)"
+                "serial offset = raw_ticks_at_capture − angle_to_ticks(angle_at_capture). "
+                "champ_servo_driver captures this from the first /joint_states by default. "
+                "pwm_homes = pulse_us at URDF home (open-loop)."
             ),
+            "apply_offsets": bool(self.apply_offsets),
             "serial_port": self.port,
             "offsets": {k: int(v) for k, v in self.offsets.items()},
             "pwm_homes": {
-                n: int(JOINT_ID_MAP[n].pulse_home_us)
+                n: int(self.pwm_homes.get(n, JOINT_ID_MAP[n].pulse_home_us))
                 for n, c in JOINT_ID_MAP.items()
                 if c.interface == IFACE_PWM
             },
@@ -236,13 +288,36 @@ class QuadServoHardware:
         for name in self.online_joints or JOINT_ORDER:
             self.enable_torque(name, enable)
 
-    def command_rad(self, joint_name: str, angle_rad: float) -> bool:
+    def _ticks_for_angle(self, joint_name: str, angle_rad: float) -> int:
+        cfg = JOINT_ID_MAP[joint_name]
+        ideal = angle_to_ticks(angle_rad, cfg.direction, cfg.urdf_home_rad)
+        if self.apply_offsets:
+            ideal = ideal + self.offsets.get(joint_name, 0)
+        return int(ideal) % TICKS_PER_REV
+
+    def _goal_ticks_shortest(self, current: Optional[int], target: int) -> int:
+        """
+        Multi-turn goal so the servo travels the short way on the circle.
+
+        Example: current=3982 (~350°), target=0 → goal=4096 (not 0), so it
+        advances 3982→4095→0 instead of reversing the long way.
+        """
+        target = int(target) % TICKS_PER_REV
+        if current is None:
+            return target
+        current = int(current) % TICKS_PER_REV
+        return current + shortest_tick_delta(current, target)
+
+    def command_rad(
+        self, joint_name: str, angle_rad: float, shortest: bool = True
+    ) -> bool:
         cfg = JOINT_ID_MAP[joint_name]
         if cfg.interface == IFACE_SERIAL:
             if self.bus is None:
                 return False
-            ideal = angle_to_ticks(angle_rad, cfg.direction, cfg.urdf_home_rad)
-            target = ideal + self.offsets.get(joint_name, 0)
+            target = self._ticks_for_angle(joint_name, angle_rad)
+            if shortest:
+                target = self._goal_ticks_shortest(self.read_ticks(joint_name), target)
             speed, acc = speed_acc_for_model(cfg.model)
             result, error = self.bus.write_position(cfg.servo_id, target, speed, acc)
             if result != self.bus.ok:
@@ -258,10 +333,15 @@ class QuadServoHardware:
 
         return False
 
-    def command_rad_many(self, targets: Dict[str, float]) -> Dict[str, bool]:
+    def command_rad_many(
+        self, targets: Dict[str, float], shortest: bool = True
+    ) -> Dict[str, bool]:
         """
         Command many joints at once. Serial joints use one SyncWrite packet so
         they start moving together; PWM hips are written immediately after.
+
+        With shortest=True, goals that need wrap (e.g. 350°→0°) get the next
+        hop on the short arc so the servo does not take the long way.
         """
         results: Dict[str, bool] = {name: False for name in targets}
         sync_goals = []
@@ -272,8 +352,9 @@ class QuadServoHardware:
             if cfg.interface == IFACE_SERIAL:
                 if self.bus is None:
                     continue
-                ideal = angle_to_ticks(angle_rad, cfg.direction, cfg.urdf_home_rad)
-                ticks = ideal + self.offsets.get(name, 0)
+                ticks = self._ticks_for_angle(name, angle_rad)
+                if shortest:
+                    ticks = self._goal_ticks_shortest(self.read_ticks(name), ticks)
                 speed, acc = speed_acc_for_model(cfg.model)
                 sync_goals.append((cfg.servo_id, ticks, speed, acc))
                 sync_names.append(name)
@@ -290,12 +371,100 @@ class QuadServoHardware:
                 )
                 for name, angle_rad in targets.items():
                     if name in sync_names:
-                        results[name] = self.command_rad(name, angle_rad)
+                        results[name] = self.command_rad(
+                            name, angle_rad, shortest=shortest
+                        )
             else:
                 for name in sync_names:
                     results[name] = True
 
         return results
+
+    def move_to_angles_shortest(
+        self,
+        targets: Dict[str, float],
+        settle_sec: float = 0.5,
+        timeout_sec: float = 15.0,
+        tol_ticks: int = 12,
+        **_ignored,
+    ) -> Dict[str, bool]:
+        """
+        Drive joints to target URDF angles along the shortest tick arc.
+
+        Example: current ≈ 350° (tick ~3982), home tick 0 → multi-turn goal
+        4096 so the servo advances 350→351→…→0 (not the long way).
+        """
+        final_ticks: Dict[str, int] = {}
+        sync_goals = []
+        for name, angle in targets.items():
+            cfg = JOINT_ID_MAP[name]
+            if cfg.interface != IFACE_SERIAL:
+                self.command_rad(name, angle, shortest=False)
+                continue
+            goal = self._ticks_for_angle(name, angle)
+            final_ticks[name] = goal
+            cur = self.read_ticks(name)
+            mt_goal = self._goal_ticks_shortest(cur, goal)
+            speed, acc = speed_acc_for_model(cfg.model)
+            sync_goals.append((cfg.servo_id, mt_goal, speed, acc))
+            self.log.info(
+                f"shortest {name} id={cfg.servo_id}: "
+                f"now={cur} → multi-turn {mt_goal} (mod goal {goal}, "
+                f"Δ={0 if cur is None else shortest_tick_delta(cur, goal)})"
+            )
+
+        if sync_goals and self.bus is not None:
+            result = self.bus.sync_write_positions(sync_goals)
+            if result != self.bus.ok:
+                self.log.warning(
+                    f"shortest sync_write: {self.bus.result_str(result)} — per-joint"
+                )
+                for name, angle in targets.items():
+                    if name in final_ticks:
+                        self.command_rad(name, angle, shortest=True)
+
+        t0 = time.time()
+        while time.time() - t0 < timeout_sec:
+            time.sleep(settle_sec)
+            pending = False
+            for name, goal in final_ticks.items():
+                cur = self.read_ticks(name)
+                if cur is None or abs(shortest_tick_delta(cur, goal)) > tol_ticks:
+                    pending = True
+                    break
+            if not pending:
+                break
+
+        out: Dict[str, bool] = {}
+        for name in targets:
+            if name not in final_ticks:
+                out[name] = True
+                continue
+            goal = final_ticks[name]
+            cur = self.read_ticks(name)
+            ok = cur is not None and abs(shortest_tick_delta(cur, goal)) <= tol_ticks
+            out[name] = ok
+            if not ok:
+                self.log.warning(
+                    f"shortest {name}: end ticks={cur} goal={goal} ok={ok}"
+                )
+        return out
+
+    def home_shortest(
+        self,
+        joint_names: Optional[List[str]] = None,
+        **kwargs,
+    ) -> Dict[str, bool]:
+        """Home listed joints (default: all online) via shortest path to URDF home."""
+        names = joint_names or list(self.online_joints)
+        targets = {
+            n: JOINT_ID_MAP[n].urdf_home_rad for n in names if n in JOINT_ID_MAP
+        }
+        self.log.info(
+            f"Homing {len(targets)} joints shortest-path to tick home "
+            f"(0° = tick 0 at URDF home angles)…"
+        )
+        return self.move_to_angles_shortest(targets, **kwargs)
 
     def read_ticks(self, joint_name: str) -> Optional[int]:
         cfg = JOINT_ID_MAP[joint_name]

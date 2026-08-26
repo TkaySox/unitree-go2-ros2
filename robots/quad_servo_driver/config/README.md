@@ -9,10 +9,11 @@ Feetech serial-bus hardware for the SolidWorks / CHAMP quadruped on a **Raspberr
 | Goal | How |
 |------|-----|
 | Talk to servos | Official Feetech **scservo_sdk** (same STS/SMS protocol as **SCServo_Linux**) |
-| Fix horn / mechanical offsets | **Calibration (remap)**: read ticks at URDF home, save offsets to YAML |
-| Drive from CHAMP | Subscribe to `joint_states`, convert rad → ticks + offset, write positions |
+| Match RViz to hardware | **Default: no offsets** — URDF/RViz rad → ticks directly (`apply_offsets:=false`) |
+| Drive from CHAMP | Subscribe to `joint_states`, convert rad → ticks, write positions |
 | Debug bus | Read-only **servo_diag** (pos, speed, V, temp, limits, …) |
 | Bring-up motion test | **hw_joint_test**: remap, then **+20° all joints at once** (sync write) |
+| Torque on/off | **servo_torque** — hold or limp mapped servos (no motion) |
 
 ---
 
@@ -45,6 +46,8 @@ sudo apt install python3-gpiozero python3-lgpio
 | `champ_servo_driver.py` | ROS node: `joint_states` → hardware |
 | `servo_diag.py` | Read-only diagnostics |
 | `hw_joint_test.py` | Remap + simultaneous ±deg sweep (sync write; `simultaneous:=false` for sequential) |
+| `servo_home.py` | Shortest-path home to tick 0 |
+| `servo_torque.py` | Enable / disable torque on mapped servos |
 | `third_party/VENDOR.md` | Where the SDK came from |
 
 ---
@@ -81,28 +84,29 @@ sudo chmod 666 /dev/ttyACM0
 
 ---
 
-## Calibration (remap)
+## Mapping (default: no offsets)
 
-Mechanical horns are rarely exactly at URDF zero. Calibration stores:
+If the physical robot pose already matches what you see in RViz/URDF, **do not
+apply mechanical offsets**. That is the default:
 
 ```text
-offset = raw_tick_at_URDF_home − ideal_home_ticks
-# ideal_home_ticks is CENTER_TICK (2048) when urdf_home_rad = 0
+ticks = angle_to_ticks(urdf_angle)   # no +offset
 ```
 
-**File:** `~/.ros/quad_servo_calibration.yaml`  
+**File:** `~/.ros/quad_servo_calibration.yaml` (identity / zeros by default)  
 (override with `QUAD_SERVO_CALIB` or param `calibration_file`)
 
 | Action | How |
 |--------|-----|
-| First run / new calib | Pose robot at **URDF home**, run driver or `hw_joint_test` with `force_recalibrate:=true` |
-| Reuse calib | Leave the YAML in place (`force_recalibrate:=false`) |
-| Force redo | `ros2 run quad_servo_driver servo_calibrate` (pose at home first), or delete the YAML / `-p force_recalibrate:=true` |
+| Normal (RViz matches robot) | Leave `apply_offsets:=false` (default on all nodes) |
+| Write identity YAML | `ros2 run quad_servo_driver servo_calibrate` |
+| Horns do NOT match RViz | Pose URDF home, then `servo_calibrate --ros-args -p apply_offsets:=true`, and run drivers with `-p apply_offsets:=true` |
 
-Command path when running:
+Optional offset path (only when `apply_offsets:=true`):
 
 ```text
-ticks = angle_to_ticks(urdf_angle) + offset
+offset = raw_tick_at_URDF_home − ideal_home_ticks   # ideal ≈ 2048 at home
+ticks  = angle_to_ticks(urdf_angle) + offset
 ```
 
 ---
@@ -137,21 +141,18 @@ Useful fields from a good dump: `pos`, `V` (~7–12 V depending on supply), `T`,
 
 ---
 
-### B) `hw_joint_test` — remap, then +20° all at once
+### B) `hw_joint_test` — +20° all at once (no offsets by default)
 
-**Support the robot.** Pose at URDF home first.
+**Support the robot.**
 
 ```bash
-# Default: force remapping, then ALL online joints +20° together, hold, return home together
+# Default: URDF→ticks (no offsets), ALL online joints +20° together, hold, return home
 ros2 run quad_servo_driver hw_joint_test
 ```
 
 Options:
 
 ```bash
-# Keep existing calibration file
-ros2 run quad_servo_driver hw_joint_test --ros-args -p force_recalibrate:=false
-
 # Smaller / slower motion
 ros2 run quad_servo_driver hw_joint_test --ros-args \
   -p delta_deg:=10.0 -p hold_sec:=2.0 -p settle_sec:=1.0
@@ -164,12 +165,16 @@ ros2 run quad_servo_driver hw_joint_test --ros-args -p simultaneous:=false
 
 # Leave torque enabled at end
 ros2 run quad_servo_driver hw_joint_test --ros-args -p disable_torque_at_end:=false
+
+# Only if physical horns do not match RViz:
+ros2 run quad_servo_driver hw_joint_test --ros-args \
+  -p apply_offsets:=true -p force_recalibrate:=true
 ```
 
 Sequence:
 
 1. Open serial, ping mapped IDs  
-2. **Remap** (calibrate offsets → YAML)  
+2. Load mapping (identity / no offsets by default)  
 3. Enable torque → all online joints to URDF home  
 4. **All online joints +Δ° at the same time**, hold, return home together  
 5. Disable torque (default) and close port  
@@ -181,26 +186,85 @@ Sequence:
 With CHAMP publishing `joint_states` on hardware (`gazebo:=false`):
 
 ```bash
-ros2 launch quad_config bringup.launch.py
-# other terminal:
+ros2 launch quad_config bringup.launch.py hardware_connected:=true
+# other terminal — pose the robot where you want first:
 ros2 run quad_servo_driver champ_servo_driver
+```
 
-# Force remapping on start
-ros2 run quad_servo_driver champ_servo_driver --ros-args -p force_recalibrate:=true
+**Default `capture_on_start:=true`:** on the first `/joint_states`, the driver
+reads each servo’s **current ticks** and saves offsets so those URDF angles
+map to the pose the robot is in **right now** (no yank). Then it follows CHAMP.
+
+```bash
+# Reuse last captured YAML (skip re-capture — can jump if pose changed)
+ros2 run quad_servo_driver champ_servo_driver --ros-args -p capture_on_start:=false
+
+# Raw URDF→ticks with no offsets (will move to ideal 2048-centered pose)
+ros2 run quad_servo_driver champ_servo_driver --ros-args \
+  -p capture_on_start:=false -p apply_offsets:=false
 ```
 
 Ignores joint names not in `JOINT_ID_MAP`. Warns (does not crash) on failed writes. Closes the port on shutdown.
 
 ---
 
-## Angle ↔ ticks
+### D) `servo_torque` — enable / disable torque
 
-```text
-ticks_ideal = 2048 + direction * (angle_rad − urdf_home_rad) * (4096 / 2π)
-ticks_cmd   = ticks_ideal + calibration_offset
+Does **not** move joints. Turns holding torque on (stiff) or off (limp).
+
+```bash
+# Torque ON (hold)
+ros2 run quad_servo_driver servo_torque --ros-args -p enable:=true
+
+# Torque OFF (limp — safe to pose by hand)
+ros2 run quad_servo_driver servo_torque --ros-args -p enable:=false
 ```
 
-≈ **227.6 ticks per 20°** (≈56.9 ticks per 5°) at direction = +1.
+Shortcuts (after `source ~/.bashrc`):
+
+```bash
+qton     # torque on
+qtoff    # torque off
+```
+
+> Stop `champ_servo_driver` / other nodes that own `/dev/ttyACM0` first, or this will fail to open the port.
+
+---
+
+## Shell shortcuts (`~/.bash_aliases`)
+
+Reload with `source ~/.bashrc`, then `qhelp` for the full list.
+
+| Shortcut | Command |
+|----------|---------|
+| `qsrc` | Source ROS + `~/quad_ws` |
+| `qbuild` | `colcon build --symlink-install` |
+| `qsim` / `qsimh` | Gazebo + RViz / headless |
+| `qhw` / `qhwn` | Hardware CHAMP bringup (± RViz) |
+| `qdrv` | `champ_servo_driver` |
+| `qhome` | Shortest-path home → tick 0 |
+| `qton` / `qtoff` | **Torque on / off** |
+| `qtest` | `hw_joint_test` (+20°) |
+| `qdiag` | `servo_diag` once |
+| `qtele` | Keyboard teleop |
+| `qcircle` / `qfwd` / `qstop` | Circle / forward / stop `cmd_vel` |
+| `qdrop` / `qstand` | Crouch / reset `/body_pose` |
+
+---
+
+## Angle ↔ ticks
+
+Start pose: **upper vertical (0)**, **lower 90° forward (π/2)** → servo **0° = tick 0**.
+
+```text
+ticks = (0 + direction * (angle_rad − urdf_home_rad) * (4096 / 2π)) mod 4096
+# (+ optional calibration_offset only when apply_offsets:=true)
+```
+
+**Homing** (`servo_home` / `qhome`) uses the **shortest path** on the circle.
+Example: at ~350° → moves 350→351→…→0 (wrap), not the long way through 180°.
+
+≈ **227.6 ticks per 20°** at direction = +1.
 
 Hip vs leg use different default **speed/acc** (`HIP_SPEED` / `DEFAULT_SPEED` in `joint_map.py`).
 
@@ -211,9 +275,10 @@ Hip vs leg use different default **speed/acc** (`HIP_SPEED` / `DEFAULT_SPEED` in
 1. `dialout` permissions + `ls -l /dev/ttyACM0`  
 2. `servo_diag -p once:=true` — confirm which IDs answer  
 3. Fix wiring / IDs for any missing joints; edit `JOINT_ID_MAP`  
-4. Pose URDF home → `hw_joint_test` (remap + 20° sweep)  
-5. If a joint moves the wrong way → set `direction=-1` for that joint, recalibrate  
-6. Run CHAMP + `champ_servo_driver`  
+4. Confirm RViz pose matches the physical robot → keep `apply_offsets:=false`  
+5. `hw_joint_test` (+20° simultaneous sweep)  
+6. If a joint moves the wrong way → set `direction=-1` for that joint  
+7. Run CHAMP + `champ_servo_driver`  
 
 ---
 

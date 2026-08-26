@@ -28,6 +28,7 @@ setup(
             "hw_joint_test = quad_servo_driver.hw_joint_test:main",
             "servo_calibrate = quad_servo_driver.servo_calibrate:main",
             "servo_home = quad_servo_driver.servo_home:main",
+            "servo_torque = quad_servo_driver.servo_torque:main",
         ],
     },
 )

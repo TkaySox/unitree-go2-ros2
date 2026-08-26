@@ -21,14 +21,19 @@ from typing import Dict, Optional
 SERIAL_PORT = os.environ.get("QUAD_SERVO_PORT", "/dev/ttyACM0")
 BAUDRATE = 1_000_000
 
-# ASSUMPTION: STS3215 uses STS/SMS, 4096 ticks/rev, mid=2048. VERIFY on hardware.
+# STS3215: STS/SMS, 4096 ticks/rev.
+# Home / 0° = tick 0 (user setup: upper vertical, lower 90° forward → all at 0°).
 TICKS_PER_REV = 4096
-CENTER_TICK = 2048
+HOME_TICK = 0
+CENTER_TICK = 2048  # legacy mid; not used for home anymore
 
 DEFAULT_SPEED = 60
 DEFAULT_ACC = 20
 HIP_SPEED = 40
 HIP_ACC = 15
+
+# Homing / shortest-path stepping (ticks per sync hop around the wrap)
+SHORTEST_PATH_STEP = 128
 
 PWM_FRAME_HZ = 50
 PWM_PULSE_MIN_US = 500
@@ -61,6 +66,9 @@ class JointConfig:
     pulse_home_us: int = PWM_PULSE_HOME_US
 
 
+# Start pose: upper vertical (0), lower 90° forward (π/2). Servos at tick 0 there.
+_LOWER_HOME = math.pi / 2.0
+
 JOINT_ID_MAP: Dict[str, JointConfig] = {
     # --- Hips: PWM GPIO (FT5330M) — edit BCM pins ---
     "lf_hip_joint": JointConfig(MODEL_HIP, IFACE_PWM, gpio_pin=12),
@@ -68,13 +76,21 @@ JOINT_ID_MAP: Dict[str, JointConfig] = {
     "lh_hip_joint": JointConfig(MODEL_HIP, IFACE_PWM, gpio_pin=18),
     "rh_hip_joint": JointConfig(MODEL_HIP, IFACE_PWM, gpio_pin=19),
     # --- Upper / lower: USB serial (STS3215), IDs per user ---
-    "rf_lower_leg_joint": JointConfig(MODEL_LEG, IFACE_SERIAL, servo_id=1),
+    "rf_lower_leg_joint": JointConfig(
+        MODEL_LEG, IFACE_SERIAL, servo_id=1, urdf_home_rad=_LOWER_HOME
+    ),
     "rf_upper_leg_joint": JointConfig(MODEL_LEG, IFACE_SERIAL, servo_id=2),
-    "lf_lower_leg_joint": JointConfig(MODEL_LEG, IFACE_SERIAL, servo_id=3),
+    "lf_lower_leg_joint": JointConfig(
+        MODEL_LEG, IFACE_SERIAL, servo_id=3, urdf_home_rad=_LOWER_HOME
+    ),
     "lf_upper_leg_joint": JointConfig(MODEL_LEG, IFACE_SERIAL, servo_id=4),
-    "rh_lower_leg_joint": JointConfig(MODEL_LEG, IFACE_SERIAL, servo_id=5),
+    "rh_lower_leg_joint": JointConfig(
+        MODEL_LEG, IFACE_SERIAL, servo_id=5, urdf_home_rad=_LOWER_HOME
+    ),
     "rh_upper_leg_joint": JointConfig(MODEL_LEG, IFACE_SERIAL, servo_id=6),
-    "lh_lower_leg_joint": JointConfig(MODEL_LEG, IFACE_SERIAL, servo_id=7),
+    "lh_lower_leg_joint": JointConfig(
+        MODEL_LEG, IFACE_SERIAL, servo_id=7, urdf_home_rad=_LOWER_HOME
+    ),
     "lh_upper_leg_joint": JointConfig(MODEL_LEG, IFACE_SERIAL, servo_id=8),
 }
 
@@ -95,8 +111,30 @@ JOINT_ORDER = [
 
 
 def angle_to_ticks(angle_rad: float, direction: int, urdf_home_rad: float) -> int:
+    """Map URDF angle to servo ticks. Home / 0° → HOME_TICK (0), wraps 0..4095."""
     delta = direction * (angle_rad - urdf_home_rad)
-    return int(round(CENTER_TICK + delta * (TICKS_PER_REV / (2.0 * math.pi))))
+    ticks = int(round(HOME_TICK + delta * (TICKS_PER_REV / (2.0 * math.pi))))
+    return ticks % TICKS_PER_REV
+
+
+def shortest_tick_delta(current: int, target: int) -> int:
+    """Signed shortest delta on a 4096-tick circle (−2047..+2048)."""
+    d = (int(target) - int(current)) % TICKS_PER_REV
+    if d > TICKS_PER_REV // 2:
+        d -= TICKS_PER_REV
+    return d
+
+
+def next_tick_toward(
+    current: int, target: int, step: int = SHORTEST_PATH_STEP
+) -> int:
+    """One hop along the shortest path from current → target (wrap-aware)."""
+    d = shortest_tick_delta(current, target)
+    if d == 0:
+        return int(target) % TICKS_PER_REV
+    if abs(d) <= step:
+        return int(target) % TICKS_PER_REV
+    return (int(current) + (step if d > 0 else -step)) % TICKS_PER_REV
 
 
 def angle_to_pulse_us(angle_rad: float, cfg: JointConfig) -> int:

@@ -130,14 +130,30 @@ class ScsBus:
             self._port, servo_id, ADDR_TORQUE_ENABLE, 1 if enable else 0
         )
 
+    @staticmethod
+    def encode_goal_position(ticks: int) -> int:
+        """
+        STS/SMS goal position: sign-magnitude on bit 15 (multi-turn capable).
+
+        Positive ticks may be >4095 (e.g. 4096 = one wrap past 0) so the
+        servo takes the short way instead of reversing across the circle.
+        Negative ticks set bit 15.
+        """
+        v = int(ticks)
+        if v < 0:
+            return ((-v) & 0x7FFF) | 0x8000
+        return v & 0xFFFF
+
     def write_position(
         self, servo_id: int, ticks: int, speed: int = 0, acc: int = 0
     ) -> Tuple[int, int]:
         """
-        Write goal acc, speed, then position (same sequence as scsservo_sdk_example/read_write.py).
-        ticks: 0..4095 for STS/SMS.
+        Write goal acc, speed, then position (SMS/STS WritePosEx layout).
+
+        ticks: absolute 0..4095, or multi-turn (e.g. current+delta) for
+        shortest-path wraps — see encode_goal_position().
         """
-        ticks = max(0, min(4095, int(ticks)))
+        encoded = self.encode_goal_position(ticks)
         r1, e1 = self._packet.write1ByteTxRx(self._port, servo_id, ADDR_GOAL_ACC, int(acc))
         if r1 != COMM_SUCCESS:
             return r1, e1
@@ -145,7 +161,7 @@ class ScsBus:
         if r2 != COMM_SUCCESS:
             return r2, e2
         return self._packet.write2ByteTxRx(
-            self._port, servo_id, ADDR_GOAL_POSITION, ticks
+            self._port, servo_id, ADDR_GOAL_POSITION, encoded
         )
 
     def sync_write_positions(
@@ -156,18 +172,19 @@ class ScsBus:
         One bus packet: start all servos together (SMS/STS SyncWritePosEx layout).
 
         goals: iterable of (servo_id, ticks, speed, acc)
+        ticks may be multi-turn (current + shortest_delta) for wrap-aware moves.
         Returns COMM_SUCCESS or a tx result code.
         """
         # 7 bytes from ADDR_GOAL_ACC: ACC + POS(2) + TIME(2)=0 + SPEED(2)
         gsw = GroupSyncWrite(self._port, self._packet, ADDR_GOAL_ACC, 7)
         for servo_id, ticks, speed, acc in goals:
-            ticks = max(0, min(4095, int(ticks)))
+            encoded = self.encode_goal_position(ticks)
             speed = int(speed)
             acc = int(acc)
             data = [
                 acc & 0xFF,
-                SCS_LOBYTE(ticks),
-                SCS_HIBYTE(ticks),
+                SCS_LOBYTE(encoded),
+                SCS_HIBYTE(encoded),
                 0,
                 0,
                 SCS_LOBYTE(speed),
