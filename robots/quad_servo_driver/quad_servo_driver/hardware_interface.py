@@ -27,7 +27,7 @@ from quad_servo_driver.joint_map import (
     SERIAL_PORT,
     TICKS_PER_REV,
     JointConfig,
-    angle_to_ticks,
+    config_angle_to_ticks,
     shortest_tick_delta,
     speed_acc_for_model,
 )
@@ -185,7 +185,7 @@ class QuadServoHardware:
                 if self.bus is None:
                     self.offsets[name] = 0
                     continue
-                ideal = angle_to_ticks(angle, cfg.direction, cfg.urdf_home_rad)
+                ideal = config_angle_to_ticks(cfg, angle)
                 pos, _spd, result, error = self.bus.read_pos_speed(cfg.servo_id)
                 if pos is None:
                     self.log.error(
@@ -197,8 +197,8 @@ class QuadServoHardware:
                 self.offsets[name] = int(pos) - ideal
                 self.log.info(
                     f"CAL serial {name} id={cfg.servo_id}: "
-                    f"angle={angle:.4f} rad raw={pos} ideal={ideal} "
-                    f"offset={self.offsets[name]}"
+                    f"angle={angle:.4f} rad gear={cfg.gear_ratio:.4f} "
+                    f"raw={pos} ideal={ideal} offset={self.offsets[name]}"
                 )
 
             elif cfg.interface == IFACE_PWM:
@@ -290,7 +290,7 @@ class QuadServoHardware:
 
     def _ticks_for_angle(self, joint_name: str, angle_rad: float) -> int:
         cfg = JOINT_ID_MAP[joint_name]
-        ideal = angle_to_ticks(angle_rad, cfg.direction, cfg.urdf_home_rad)
+        ideal = config_angle_to_ticks(cfg, angle_rad)
         if self.apply_offsets:
             ideal = ideal + self.offsets.get(joint_name, 0)
         return int(ideal) % TICKS_PER_REV
@@ -465,6 +465,68 @@ class QuadServoHardware:
             f"(0° = tick 0 at URDF home angles)…"
         )
         return self.move_to_angles_shortest(targets, **kwargs)
+
+    def move_to_ticks_shortest(
+        self,
+        tick_targets: Dict[str, int],
+        settle_sec: float = 0.5,
+        timeout_sec: float = 15.0,
+        tol_ticks: int = 12,
+        **_ignored,
+    ) -> Dict[str, bool]:
+        """Drive joints to absolute tick goals along the shortest arc."""
+        final_ticks: Dict[str, int] = {}
+        sync_goals = []
+        for name, goal in tick_targets.items():
+            cfg = JOINT_ID_MAP[name]
+            if cfg.interface != IFACE_SERIAL:
+                continue
+            goal_i = int(goal) % TICKS_PER_REV
+            final_ticks[name] = goal_i
+            cur = self.read_ticks(name)
+            mt_goal = self._goal_ticks_shortest(cur, goal_i)
+            speed, acc = speed_acc_for_model(cfg.model)
+            sync_goals.append((cfg.servo_id, mt_goal, speed, acc))
+            self.log.info(
+                f"tick-home {name} id={cfg.servo_id}: "
+                f"now={cur} → multi-turn {mt_goal} (goal {goal_i})"
+            )
+
+        if sync_goals and self.bus is not None:
+            result = self.bus.sync_write_positions(sync_goals)
+            if result != self.bus.ok:
+                self.log.warning(
+                    f"tick-home sync_write: {self.bus.result_str(result)}"
+                )
+                for name, goal_i in final_ticks.items():
+                    cfg = JOINT_ID_MAP[name]
+                    cur = self.read_ticks(name)
+                    mt = self._goal_ticks_shortest(cur, goal_i)
+                    speed, acc = speed_acc_for_model(cfg.model)
+                    self.bus.write_position(cfg.servo_id, mt, speed, acc)
+
+        t0 = time.time()
+        while time.time() - t0 < timeout_sec:
+            time.sleep(settle_sec)
+            pending = False
+            for name, goal in final_ticks.items():
+                cur = self.read_ticks(name)
+                if cur is None or abs(shortest_tick_delta(cur, goal)) > tol_ticks:
+                    pending = True
+                    break
+            if not pending:
+                break
+
+        out: Dict[str, bool] = {}
+        for name, goal in final_ticks.items():
+            cur = self.read_ticks(name)
+            ok = cur is not None and abs(shortest_tick_delta(cur, goal)) <= tol_ticks
+            out[name] = ok
+            if not ok:
+                self.log.warning(
+                    f"tick-home {name}: end={cur} goal={goal} ok={ok}"
+                )
+        return out
 
     def read_ticks(self, joint_name: str) -> Optional[int]:
         cfg = JOINT_ID_MAP[joint_name]

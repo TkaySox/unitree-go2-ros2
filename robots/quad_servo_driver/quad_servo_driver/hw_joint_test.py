@@ -5,19 +5,20 @@ Hardware bring-up test for the quad Feetech bus.
 1) Ping mapped servos
 2) Load mapping (default: no offsets — URDF rad → ticks directly)
 3) Enable torque, go to home
-4) Move ALL online joints +N degrees at the same time, hold, return home together
+4) Move joints +N degrees **one at a time** (default), hold, return home
 
 Examples:
   ros2 run quad_servo_driver hw_joint_test
   ros2 run quad_servo_driver hw_joint_test --ros-args -p delta_deg:=10.0
-  # old one-at-a-time behavior:
-  ros2 run quad_servo_driver hw_joint_test --ros-args -p simultaneous:=false
+  # all joints together:
+  ros2 run quad_servo_driver hw_joint_test --ros-args -p simultaneous:=true
   # only if horns do NOT match RViz (rare):
   ros2 run quad_servo_driver hw_joint_test --ros-args -p apply_offsets:=true -p force_recalibrate:=true
 """
 
 from __future__ import annotations
 
+import sys
 import time
 
 import rclpy
@@ -32,6 +33,13 @@ from quad_servo_driver.joint_map import (
 )
 
 
+def _ask(prompt: str) -> str:
+    try:
+        return input(prompt).strip().lower()
+    except EOFError:
+        return "q"
+
+
 class HwJointTest(Node):
     def __init__(self) -> None:
         super().__init__("hw_joint_test")
@@ -40,12 +48,14 @@ class HwJointTest(Node):
         self.declare_parameter("calibration_file", CALIBRATION_FILE)
         self.declare_parameter("force_recalibrate", False)
         self.declare_parameter("apply_offsets", False)
-        self.declare_parameter("delta_deg", 20.0)
+        self.declare_parameter("delta_deg", 10.0)
         self.declare_parameter("hold_sec", 2.0)
         self.declare_parameter("settle_sec", 1.0)
         self.declare_parameter("return_home", True)
         self.declare_parameter("disable_torque_at_end", True)
-        self.declare_parameter("simultaneous", True)
+        self.declare_parameter("simultaneous", False)
+        # After each one-at-a-time move, ask if the joint moved at all.
+        self.declare_parameter("confirm_moved", True)
 
         port = str(self.get_parameter("port").value)
         calib = str(self.get_parameter("calibration_file").value)
@@ -57,6 +67,7 @@ class HwJointTest(Node):
         return_home = bool(self.get_parameter("return_home").value)
         disable_end = bool(self.get_parameter("disable_torque_at_end").value)
         simultaneous = bool(self.get_parameter("simultaneous").value)
+        confirm_moved = bool(self.get_parameter("confirm_moved").value)
 
         delta_rad = deg_to_rad(delta_deg)
 
@@ -143,7 +154,7 @@ class HwJointTest(Node):
                             f"ticks={hw.read_ticks(name)}"
                         )
             else:
-                # Sequential (legacy)
+                # One joint at a time
                 for name in JOINT_ORDER:
                     if name not in online:
                         self.get_logger().warning(f"SKIP {name} (not online)")
@@ -151,19 +162,59 @@ class HwJointTest(Node):
                     cfg = hw.joint_config(name)
                     home = cfg.urdf_home_rad
                     target = home + delta_rad
-                    before = hw.read_ticks(name)
-                    self.get_logger().info(
-                        f"MOVE {name} (id={cfg.servo_id}): "
-                        f"+{delta_deg:.1f}° ticks_now={before}"
-                    )
-                    hw.command_rad(name, target)
-                    time.sleep(hold)
-                    self.get_logger().info(
-                        f"  arrived ticks={hw.read_ticks(name)}"
-                    )
-                    if return_home:
-                        hw.move_to_angles_shortest({name: home})
-                        time.sleep(settle)
+
+                    while True:
+                        before = hw.read_ticks(name)
+                        self.get_logger().info(
+                            f"MOVE {name} (id={cfg.servo_id}): "
+                            f"+{delta_deg:.1f}° ticks_now={before}"
+                        )
+                        hw.move_to_angles_shortest({name: target})
+                        time.sleep(hold)
+                        after = hw.read_ticks(name)
+                        tick_delta = (
+                            None
+                            if before is None or after is None
+                            else int(after) - int(before)
+                        )
+                        self.get_logger().info(
+                            f"  arrived ticks={after}  Δticks={tick_delta}"
+                        )
+
+                        if confirm_moved:
+                            print()
+                            print(
+                                f"Did {name} MOVE AT ALL? "
+                                f"(ticks {before} → {after}, Δ={tick_delta})"
+                            )
+                            print("  y = yes, continue")
+                            print("  n = no — retry this joint")
+                            print("  s = skip to next joint")
+                            print("  q = quit sweep")
+                            ans = _ask("Moved? [y/n/s/q]: ")
+                            if ans.startswith("q"):
+                                if return_home:
+                                    hw.move_to_angles_shortest({name: home})
+                                self.get_logger().info("Sweep aborted by user.")
+                                return
+                            if ans.startswith("s"):
+                                break
+                            if ans.startswith("n") or ans == "no":
+                                if return_home:
+                                    hw.move_to_angles_shortest({name: home})
+                                    time.sleep(settle)
+                                continue
+                            if not (ans.startswith("y") or ans in ("", "yes")):
+                                print("Unknown — retrying.")
+                                if return_home:
+                                    hw.move_to_angles_shortest({name: home})
+                                    time.sleep(settle)
+                                continue
+
+                        if return_home:
+                            hw.move_to_angles_shortest({name: home})
+                            time.sleep(settle)
+                        break
 
             self.get_logger().info("Sweep complete.")
         finally:

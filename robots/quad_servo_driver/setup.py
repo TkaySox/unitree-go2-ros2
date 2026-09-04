@@ -29,6 +29,8 @@ setup(
             "servo_calibrate = quad_servo_driver.servo_calibrate:main",
             "servo_home = quad_servo_driver.servo_home:main",
             "servo_torque = quad_servo_driver.servo_torque:main",
+            "servo_dir_config = quad_servo_driver.servo_dir_config:main",
+            "servo_sync_offsets = quad_servo_driver.servo_sync_offsets:main",
         ],
     },
 )

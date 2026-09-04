@@ -12,8 +12,9 @@ Feetech serial-bus hardware for the SolidWorks / CHAMP quadruped on a **Raspberr
 | Match RViz to hardware | **Default: no offsets** — URDF/RViz rad → ticks directly (`apply_offsets:=false`) |
 | Drive from CHAMP | Subscribe to `joint_states`, convert rad → ticks, write positions |
 | Debug bus | Read-only **servo_diag** (pos, speed, V, temp, limits, …) |
-| Bring-up motion test | **hw_joint_test**: remap, then **+20° all joints at once** (sync write) |
+| Bring-up motion test | **hw_joint_test**: remap, then **+10° one joint at a time** |
 | Torque on/off | **servo_torque** — hold or limp mapped servos (no motion) |
+| Direction signs | **servo_dir_config** — +10° per joint, ask if motion matches positive command |
 
 ---
 
@@ -45,9 +46,10 @@ sudo apt install python3-gpiozero python3-lgpio
 | `hardware_interface.py` | **`QuadServoHardware`**: connect, ping, calibrate/remap, torque, `command_rad()` |
 | `champ_servo_driver.py` | ROS node: `joint_states` → hardware |
 | `servo_diag.py` | Read-only diagnostics |
-| `hw_joint_test.py` | Remap + simultaneous ±deg sweep (sync write; `simultaneous:=false` for sequential) |
+| `hw_joint_test.py` | ±deg sweep **one joint at a time** (default); `simultaneous:=true` for all at once |
 | `servo_home.py` | Shortest-path home to tick 0 |
 | `servo_torque.py` | Enable / disable torque on mapped servos |
+| `servo_dir_config.py` | Interactive +10° direction wizard → `~/.ros/quad_servo_directions.yaml` |
 | `third_party/VENDOR.md` | Where the SDK came from |
 
 ---
@@ -141,13 +143,14 @@ Useful fields from a good dump: `pos`, `V` (~7–12 V depending on supply), `T`,
 
 ---
 
-### B) `hw_joint_test` — +20° all at once (no offsets by default)
+### B) `hw_joint_test` — +10° **one joint at a time** (default)
 
 **Support the robot.**
 
 ```bash
-# Default: URDF→ticks (no offsets), ALL online joints +20° together, hold, return home
+# Default: each online joint +10°, hold, return home, then next joint
 ros2 run quad_servo_driver hw_joint_test
+# or: qtest
 ```
 
 Options:
@@ -160,8 +163,11 @@ ros2 run quad_servo_driver hw_joint_test --ros-args \
 # Leave joints at +delta (do not return home)
 ros2 run quad_servo_driver hw_joint_test --ros-args -p return_home:=false
 
-# Old sequential (one joint at a time)
-ros2 run quad_servo_driver hw_joint_test --ros-args -p simultaneous:=false
+# All joints together (old simultaneous mode)
+ros2 run quad_servo_driver hw_joint_test --ros-args -p simultaneous:=true
+
+# Skip "did it move?" prompts
+ros2 run quad_servo_driver hw_joint_test --ros-args -p confirm_moved:=false
 
 # Leave torque enabled at end
 ros2 run quad_servo_driver hw_joint_test --ros-args -p disable_torque_at_end:=false
@@ -176,7 +182,7 @@ Sequence:
 1. Open serial, ping mapped IDs  
 2. Load mapping (identity / no offsets by default)  
 3. Enable torque → all online joints to URDF home  
-4. **All online joints +Δ° at the same time**, hold, return home together  
+4. **One joint at a time:** +Δ°, hold, return home, next joint  
 5. Disable torque (default) and close port  
 
 ---
@@ -231,6 +237,38 @@ qtoff    # torque off
 
 ---
 
+### E) `servo_dir_config` — set rotation direction per joint
+
+Walks **upper and lower** serial joints **one at a time**:
+
+1. Nudge **+10°** in the positive URDF/controller sense  
+2. Ask: **did it move at all?** (`y` / `n` retry / `s` skip)  
+3. Ask: was the direction correct for positive input?  
+   **y** keep · **n** flip and re-test · **r** repeat · **s** skip  
+4. Saves `~/.ros/quad_servo_directions.yaml` (loaded automatically by all tools)
+
+Skip the motion confirm:
+```bash
+ros2 run quad_servo_driver servo_dir_config --ros-args -p confirm_moved:=false
+```
+
+```bash
+# Stop qdrv / other serial users first
+ros2 run quad_servo_driver servo_dir_config
+
+# or:
+qdir
+```
+
+Smaller nudge:
+```bash
+ros2 run quad_servo_driver servo_dir_config --ros-args -p delta_deg:=10.0
+```
+
+After finishing, **restart** `champ_servo_driver` so it reloads the new signs.
+
+---
+
 ## Shell shortcuts (`~/.bash_aliases`)
 
 Reload with `source ~/.bashrc`, then `qhelp` for the full list.
@@ -244,7 +282,9 @@ Reload with `source ~/.bashrc`, then `qhelp` for the full list.
 | `qdrv` | `champ_servo_driver` |
 | `qhome` | Shortest-path home → tick 0 |
 | `qton` / `qtoff` | **Torque on / off** |
-| `qtest` | `hw_joint_test` (+20°) |
+| `qhome` / `qhome_champ` | SERVO_ZERO (horiz lower) / CHAMP_ZERO (both vertical) |
+| `qdir` | **Direction wizard** (+10° ask y/n per joint) |
+| `qtest` | `hw_joint_test` (+10° from SERVO_ZERO, one at a time) |
 | `qdiag` | `servo_diag` once |
 | `qtele` | Keyboard teleop |
 | `qcircle` / `qfwd` / `qstop` | Circle / forward / stop `cmd_vel` |
@@ -252,19 +292,31 @@ Reload with `source ~/.bashrc`, then `qhelp` for the full list.
 
 ---
 
-## Angle ↔ ticks
+## Angle ↔ ticks (CHAMP vs servo zero)
 
-Start pose: **upper vertical (0)**, **lower 90° forward (π/2)** → servo **0° = tick 0**.
+| Frame | Upper | Lower |
+|-------|--------|--------|
+| **CHAMP_ZERO** (CHAMP/gait command 0) | vertical | **vertical** |
+| **SERVO_ZERO** (Feetech tick 0) | vertical | **horizontal** (forward) |
+
+So when CHAMP stands at 0/0, **lowers leave tick 0** and rotate ~90° to stand vertical.
 
 ```text
-ticks = (0 + direction * (angle_rad − urdf_home_rad) * (4096 / 2π)) mod 4096
-# (+ optional calibration_offset only when apply_offsets:=true)
+δ = direction × (champ_angle − servo_zero_angle)
+ticks = (0 + δ × 4096/2π) mod 4096
+# servo_zero_angle: upper=0, lower=π/2
+# [* gear_ratio later when QUAD_APPLY_GEAR_RATIO=1]
 ```
 
-**Homing** (`servo_home` / `qhome`) uses the **shortest path** on the circle.
-Example: at ~350° → moves 350→351→…→0 (wrap), not the long way through 180°.
+**Servo `direction` (+1/−1):** `qdir` — which way the shaft turns for positive Δ.
 
-≈ **227.6 ticks per 20°** at direction = +1.
+**Gear (later):** pinion 39.4 → driven 44.5 (`≈1.129`), not applied yet.
+
+**Homing**
+- `qhome_champ` → torque off, you place **both links VERTICAL**, saves ticks to `~/.ros/quad_servo_home_ticks.yaml`
+- `qhome` → moves to those saved ticks every time
+
+≈ **113.8 ticks per 10°** of joint (gear off) at direction = +1.
 
 Hip vs leg use different default **speed/acc** (`HIP_SPEED` / `DEFAULT_SPEED` in `joint_map.py`).
 
@@ -276,7 +328,7 @@ Hip vs leg use different default **speed/acc** (`HIP_SPEED` / `DEFAULT_SPEED` in
 2. `servo_diag -p once:=true` — confirm which IDs answer  
 3. Fix wiring / IDs for any missing joints; edit `JOINT_ID_MAP`  
 4. Confirm RViz pose matches the physical robot → keep `apply_offsets:=false`  
-5. `hw_joint_test` (+20° simultaneous sweep)  
+5. `hw_joint_test` (+10° one joint at a time)  
 6. If a joint moves the wrong way → set `direction=-1` for that joint  
 7. Run CHAMP + `champ_servo_driver`  
 

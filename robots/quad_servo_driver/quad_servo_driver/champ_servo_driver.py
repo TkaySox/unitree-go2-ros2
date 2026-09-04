@@ -2,9 +2,14 @@
 """
 CHAMP → Feetech hardware bridge (ROS 2 / rclpy).
 
-On start (default): wait for the first /joint_states, read every online
-servo's current ticks, and save offsets so those URDF angles map to the
-pose the robot is in right now (no yank). Then follow joint_states.
+Pose model (see joint_map.py):
+  CHAMP 0 on upper+lower = both links VERTICAL
+  Servo tick 0           = upper VERTICAL, lower HORIZONTAL
+
+So when CHAMP stands at 0/0, lowers are commanded ~90° off mechanical zero.
+
+Default: use that geometric map (no live capture). Optional capture still
+available if you really want to lock whatever pose you're in.
 """
 
 from __future__ import annotations
@@ -24,11 +29,9 @@ class ChampServoDriver(Node):
         super().__init__("champ_servo_driver")
         self.declare_parameter("port", SERIAL_PORT)
         self.declare_parameter("calibration_file", CALIBRATION_FILE)
-        # Capture live ticks ↔ first joint_states so the robot does not jump.
-        self.declare_parameter("capture_on_start", True)
-        # If capture_on_start is false: load YAML offsets (apply_offsets true)
-        # or raw URDF→ticks (apply_offsets false).
-        self.declare_parameter("apply_offsets", True)
+        # Default OFF: use SERVO_ZERO vs CHAMP_ZERO geometry in joint_map.
+        self.declare_parameter("capture_on_start", False)
+        self.declare_parameter("apply_offsets", False)
         self.declare_parameter("force_recalibrate", False)
 
         port = str(self.get_parameter("port").value)
@@ -48,18 +51,18 @@ class ChampServoDriver(Node):
 
         self._ready = False
         if self._capture:
-            # Do NOT enable torque or command until we capture current pose.
             self.get_logger().warn(
-                "Waiting for first /joint_states to capture current servo "
-                "ticks as calibration (robot should already be in the pose "
-                "you want — it will not be moved for capture)."
+                "capture_on_start:=true — waiting for first /joint_states to "
+                "bind current ticks (overrides geometric SERVO_ZERO map)."
             )
         else:
             self._hw.load_or_calibrate(force=force)
             self._hw.enable_all_torque(True)
             self._ready = True
             self.get_logger().info(
-                f"HW ready (no capture) — listening on '{JOINT_STATES_TOPIC}' "
+                "HW ready — CHAMP angles → servos with SERVO_ZERO map "
+                "(upper vert / lower horiz at tick 0; CHAMP 0 = both vertical). "
+                f"Listening on '{JOINT_STATES_TOPIC}' "
                 f"({len(self._hw.online_joints)}/{len(JOINT_ID_MAP)} online)."
             )
 
@@ -87,8 +90,7 @@ class ChampServoDriver(Node):
         self._ready = True
         self._capture = False
         self.get_logger().info(
-            "Capture done — offsets saved. Following joint_states "
-            "(commanding the captured pose holds still)."
+            "Capture done — offsets saved. Following joint_states."
         )
 
     def _on_joint_states(self, msg: JointState) -> None:
